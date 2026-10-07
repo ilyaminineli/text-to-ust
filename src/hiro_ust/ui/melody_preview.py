@@ -383,6 +383,7 @@ class MelodyPreviewPanel(QWidget):
         super().__init__(parent)
         self.piano_roll = PianoRollWidget()
         self.play_button = QPushButton("Play")
+        self.play_button.setEnabled(False)
         self.play_selection_button = QPushButton("Play Selection")
         self.play_selection_button.setEnabled(False)
         self.selection_label = QLabel("No range selected")
@@ -408,6 +409,7 @@ class MelodyPreviewPanel(QWidget):
 
     def set_notes(self, notes: list[PreviewNote]) -> None:
         self.piano_roll.set_notes(notes)
+        self.play_button.setEnabled(bool(notes))
         self.play_selection_button.setEnabled(False)
         self.selection_label.setText("No range selected")
 
