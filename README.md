@@ -86,11 +86,14 @@ text-to-ust/
         ├── analyzer/             ← Japanese linguistic analysis (Kuromoji-ready)
         ├── converter/
         ├── data/
+        ├── analyzer/           ← Japanese morphology / kanji / readings
+        ├── converter/
+        ├── data/
         ├── generator/
         ├── melody/
-        ├── ui/                   ← PySide6 application shell
+        ├── ui/                  ← PySide6 application shell
         ├── voice/
-        └── core.py              ← UI-independent generation pipeline
+        └── core.py             ← UI-independent generation pipeline
 ```
 
 The GUI is intentionally kept separate from the generator. The application shell is PySide6; lyric parsing, phonemization, melody planning, and serialization remain available as independent Python APIs.
@@ -127,9 +130,18 @@ python -m pip install -e .
 
 Runtime dependencies are kept in `requirements.txt` / `pyproject.toml`. The GUI uses PySide6. Development and packaging tools such as PyInstaller are kept in `requirements-dev.txt`.
 
-## Input and phonemization
+## Input, word structure, and kanji
 
-Japanese lyrics are fundamentally **mora-oriented**, so Hiro does not simply split Japanese text into individual characters.
+Japanese lyrics are fundamentally **mora-oriented**, but Hiro now keeps linguistic structure above the mora layer. A lyric unit can contain multiple Japanese morphemes, each with its surface form, reading, lemma, part of speech, and UTAU phonemes.
+
+For example, a unit containing kanji can be represented as:
+
+```text
+心 → こころ → noun → ko ko ro
+数える → かぞえる → verb → ka zo e ru
+```
+
+SudachiPy provides the embedded Japanese morphological analysis used by the application. The editor can preview the analyzed surface forms, readings, POS tags, kanji flags, and generated phonemes before melody generation.
 
 Examples:
 
@@ -148,6 +160,10 @@ Punctuation such as `、`, `。`, `！`, `？`, and `…` is preserved because i
 ## Melody generation
 
 Hiro combines several procedural ideas instead of choosing every pitch randomly.
+
+### Editor and analysis
+
+Section markers such as `[Verse 1]`, `[Chorus]`, and `[Bridge]` are syntax-highlighted automatically. The analysis panel separates linguistic structure from generated notes, while less frequently used actions are grouped under Project, Generation, Analyze, and Debug menus.
 
 ### Phrase-first melody
 
