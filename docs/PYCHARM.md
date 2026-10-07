@@ -19,14 +19,14 @@ python -m pip install -r requirements-dev.txt
 
 ## Recommended Run Configuration
 
-Use the package module rather than opening an arbitrary `.py` file.
+Use the repository-root launcher.
 
 **Run → Edit Configurations → + → Python**
 
 Set:
 
 - **Name:** `Hiro UST`
-- **Module name:** `hiro_ust`
+- **Script path:** `run.py`
 - **Working directory:** repository root
 - **Python interpreter:** the project's virtual environment
 
@@ -35,24 +35,29 @@ Then click **Run**.
 This is equivalent to:
 
 ```bash
-python -m hiro_ust
+python run.py
 ```
 
 ## Alternative
 
-You can run `src/hiro_ust/__main__.py` directly, but the module configuration is preferred because it follows the package layout and avoids path differences between IDEs and terminals.
+The package entry point also works:
+
+```bash
+python -m hiro_ust
+```
+
+Do not use individual internal modules such as `core.py` or `ui/main_window.py` as the main application entry point.
 
 ## Common mistake
 
-Do not use these as normal application entry points:
+Do not run:
 
 ```text
 src/hiro_ust/core.py
-src/hiro_ust/hiro_ust_dev.py
-src/hiro_ust/cli.py
+src/hiro_ust/ui/main_window.py
 ```
 
-`core.py` is the programmatic API. `cli.py` is the launcher implementation. `hiro_ust_dev.py` is legacy/internal runtime code that is still being migrated out of the package.
+`core.py` is the UI-independent generation API. `ui/main_window.py` is the PySide6 presentation layer.
 
 ## Building the EXE from PyCharm
 

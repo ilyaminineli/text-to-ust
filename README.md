@@ -1,6 +1,6 @@
 # 響 Hiro UST
 
-**Procedural Japanese lyric → UTAU UST generator** with mora-aware phonemization, procedural melody, motif memory, Japanese pitch-accent support, timing variation, dynamics, and pitch-bend expression.
+**Procedural Japanese lyric → UTAU UST generator** with mora-aware phonemization, phrase-first procedural melody, motif memory, Japanese analysis, timing variation, dynamics, and pitch-bend expression.
 
 Hiro is designed as a **generative starting-point and tuning assistant**: instead of manually drawing every note and lyric assignment from scratch, it turns lyrics into a structured UST that can be opened in UTAU and refined further.
 
@@ -8,23 +8,27 @@ Hiro is designed as a **generative starting-point and tuning assistant**: instea
 
 ## Run Hiro
 
-### PyCharm
+### Run the PySide6 application
 
-Open the repository root and configure a Python run configuration with:
+From the repository root:
 
-```text
-Module name: hiro_ust
-Working directory: repository root
-Interpreter: project virtual environment
+```bash
+python run.py
 ```
 
-Then run it. This is equivalent to:
+The same GUI is available through:
 
 ```bash
 python -m hiro_ust
 ```
 
-Detailed PyCharm instructions: [`docs/PYCHARM.md`](docs/PYCHARM.md)
+For generation without opening the GUI:
+
+```bash
+python run.py --lyrics-file lyrics.txt --output song.ustx
+```
+
+Detailed IDE instructions: [`docs/PYCHARM.md`](docs/PYCHARM.md)
 
 ### Terminal
 
@@ -79,19 +83,17 @@ text-to-ust/
         ├── config.py
         ├── constants.py
         ├── logger.py
+        ├── analyzer/             ← Japanese linguistic analysis (Kuromoji-ready)
         ├── converter/
         ├── data/
         ├── generator/
         ├── melody/
+        ├── ui/                   ← PySide6 application shell
         ├── voice/
-        └── hiro_ust_dev.py    ← legacy/internal runtime code under migration
+        └── core.py              ← UI-independent generation pipeline
 ```
 
-Do not launch individual internal modules as the application. Use:
-
-```bash
-python -m hiro_ust
-```
+The GUI is intentionally kept separate from the generator. The application shell is PySide6; lyric parsing, phonemization, melody planning, and serialization remain available as independent Python APIs.
 
 ## What Hiro does
 
@@ -123,9 +125,7 @@ Hiro uses a `src/` package layout. Install it in editable mode during developmen
 python -m pip install -e .
 ```
 
-Runtime dependencies are kept in `requirements.txt` / `pyproject.toml`. Development and packaging tools such as PyInstaller are kept in `requirements-dev.txt`.
-
-`tkinter` is normally bundled with standard Python distributions on Windows and macOS; it is not normally installed with `pip`.
+Runtime dependencies are kept in `requirements.txt` / `pyproject.toml`. The GUI uses PySide6. Development and packaging tools such as PyInstaller are kept in `requirements-dev.txt`.
 
 ## Input and phonemization
 
@@ -149,9 +149,9 @@ Punctuation such as `、`, `。`, `！`, `？`, and `…` is preserved because i
 
 Hiro combines several procedural ideas instead of choosing every pitch randomly.
 
-### Voice leading
+### Phrase-first melody
 
-The next note considers its relationship to the previous note. Lower intone settings favor smaller movements; higher settings permit wider melodic leaps.
+The new melody layer plans phrases before rendering individual notes. It chooses a contour, register, interval motif, and cadence, then maps that musical plan onto the available scale and vocal range. This makes motif reuse and phrase-level variation possible without hard-coding individual note sequences.
 
 ### Scales
 
@@ -177,7 +177,7 @@ Vibrato is intended to become context-dependent rather than being applied indisc
 
 Hiro is a **procedural generator and starting point**, not a replacement for a professional human UTAU tuner.
 
-Current development areas include deeper Japanese pitch-accent modeling, richer phrase-level melody decisions, stronger voicebank-specific phonetic handling, intelligent vibrato/portamento, and extraction of the remaining legacy logic from `hiro_ust_dev.py`.
+Current development areas include deeper Japanese pitch-accent modeling, Kuromoji-backed Japanese analysis, stronger voicebank-specific phonetic handling, richer rhythm generation, intelligent vibrato/portamento, and additional musical policies built on the phrase-first melody layer.
 
 ## Documentation
 
