@@ -17,7 +17,7 @@ import tempfile
 import wave
 
 import numpy as np
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
@@ -143,9 +143,10 @@ class PianoRollWidget(QFrame):
         return (selected[0].position, selected[-1].end)
 
     def minimumSizeHint(self):
+        from PySide6.QtCore import QSize
         width = self.left_margin + max(80, self._total_duration()) * self.pixels_per_tick + 20
         height = self.top_margin + (self.max_tone - self.min_tone + 1) * self.row_height + 20
-        return self.sizeHint().expandedTo(self.sizeHint().__class__(int(width), int(height)))
+        return QSize(int(width), int(height))
 
     def sizeHint(self):
         width = self.left_margin + max(1200, self._total_duration()) * self.pixels_per_tick + 20
@@ -306,7 +307,7 @@ class SimpleMelodySynth:
         self._path = path
 
         if self._effect is not None:
-            self._effect.setSource(path.as_uri())
+            self._effect.setSource(QUrl.fromLocalFile(str(path)))
             self._effect.setVolume(0.30)
             self._effect.play()
         elif platform.system() == "Windows":
