@@ -1,10 +1,12 @@
 """Main PySide6 application window.
 
-The UI owns presentation state only. Generation remains in HiroUSTProcessor.
+The UI is an editor around the UI-independent HiroUSTProcessor.
 """
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import random
 import sys
 
 from PySide6.QtCore import QSettings, Qt
@@ -14,30 +16,34 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
     QSpinBox,
     QSplitter,
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
-    QGroupBox,
 )
 
 from ..config import GeneratorConfig, HiroConfig
 from ..core import HiroUSTProcessor
+from ..data.example_lyrics import EXAMPLE_LYRICS
 from ..melody import SCALES
+from .highlighter import LyricHighlighter
 from .theme import apply_theme
 
 
@@ -52,9 +58,10 @@ class HiroMainWindow(QMainWindow):
         self.current_file: Path | None = None
         self.last_output = ""
         self.last_output_format = "ustx"
+        self.last_processor: HiroUSTProcessor | None = None
 
         self.setWindowTitle(self.APP_NAME)
-        self.resize(1440, 900)
+        self.resize(1500, 920)
         self._build_ui()
         self._build_actions()
         self._load_settings()
@@ -70,14 +77,34 @@ class HiroMainWindow(QMainWindow):
         self.open_action = QAction("Open", self)
         self.save_action = QAction("Save Lyrics", self)
         self.generate_action = QAction("Generate", self)
-        self.export_action = QAction("Export UST", self)
         self.generate_action.setShortcut("Ctrl+Enter")
+        self.export_action = QAction("Export UST", self)
 
-        for action in (self.new_action, self.open_action, self.save_action):
-            toolbar.addAction(action)
+        toolbar.addAction(self.new_action)
+        toolbar.addAction(self.open_action)
+        toolbar.addAction(self.save_action)
         toolbar.addSeparator()
         toolbar.addAction(self.generate_action)
         toolbar.addAction(self.export_action)
+
+        advanced = QToolButton()
+        advanced.setText("More")
+        advanced.setPopupMode(QToolButton.InstantPopup)
+        from PySide6.QtWidgets import QMenu
+        advanced_menu = QMenu(advanced)
+        self.analyze_action = QAction("Analyze Lyrics", self)
+        self.random_seed_action = QAction("Randomize Seed", self)
+        self.load_example_action = QAction("Load Example", self)
+        self.debug_action = QAction("Show Debug Structure", self)
+        advanced_menu.addAction(self.analyze_action)
+        advanced_menu.addAction(self.random_seed_action)
+        advanced_menu.addSeparator()
+        advanced_menu.addAction(self.load_example_action)
+        advanced_menu.addAction(self.debug_action)
+        advanced.setMenu(advanced_menu)
+        toolbar.addWidget(advanced)
+
+        self._build_menus()
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -90,7 +117,7 @@ class HiroMainWindow(QMainWindow):
         eyebrow.setObjectName("eyebrow")
         title = QLabel("Hiro UST")
         title.setObjectName("title")
-        subtitle = QLabel("Lyrics → musical structure → UST / USTX")
+        subtitle = QLabel("lyrics → words → morphemes → melody → UST / USTX")
         subtitle.setObjectName("eyebrow")
         title_box.addWidget(eyebrow)
         title_box.addWidget(title)
@@ -100,7 +127,7 @@ class HiroMainWindow(QMainWindow):
 
         self.project_edit = QLineEdit("Hiro_Main")
         self.project_edit.setPlaceholderText("Project name")
-        self.project_edit.setMaximumWidth(260)
+        self.project_edit.setMaximumWidth(280)
         header.addWidget(self.project_edit)
         root_layout.addLayout(header)
 
@@ -111,23 +138,39 @@ class HiroMainWindow(QMainWindow):
         self.lyrics_edit = QPlainTextEdit()
         self.lyrics_edit.setPlaceholderText(
             "Paste Japanese lyrics here…\n\n"
-            "Section markers are supported:\n"
-            "[A]\n"
-            "[B]"
+            "Section markers:\n"
+            "[Verse 1]\n"
+            "[Chorus]"
         )
+        self.highlighter = LyricHighlighter(self.lyrics_edit.document())
         lyrics_panel.layout().addWidget(self.lyrics_edit, 1)
 
-        analysis_panel = self._make_panel("ANALYSIS / GENERATED NOTES")
-        self.analysis_label = QLabel("No generation yet.")
+        analysis_panel = self._make_panel("ANALYSIS / PREVIEW")
+        self.analysis_label = QLabel("No analysis yet.")
         self.analysis_label.setWordWrap(True)
         analysis_panel.layout().addWidget(self.analysis_label)
 
+        self.preview_tabs = QTabWidget()
+
+        self.structure_table = QTableWidget(0, 6)
+        self.structure_table.setHorizontalHeaderLabels(
+            ["Surface", "Reading", "POS", "Unit", "Flags", "Phonemes"]
+        )
+        self.structure_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.structure_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.structure_table.horizontalHeader().setStretchLastSection(True)
+
         self.notes_table = QTableWidget(0, 5)
-        self.notes_table.setHorizontalHeaderLabels(["#", "Lyric", "MIDI", "Length", "Position"])
+        self.notes_table.setHorizontalHeaderLabels(
+            ["#", "Lyric", "MIDI", "Length", "Position"]
+        )
         self.notes_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.notes_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.notes_table.horizontalHeader().setStretchLastSection(True)
-        analysis_panel.layout().addWidget(self.notes_table, 1)
+
+        self.preview_tabs.addTab(self.structure_table, "Structure")
+        self.preview_tabs.addTab(self.notes_table, "Notes")
+        analysis_panel.layout().addWidget(self.preview_tabs, 1)
 
         settings_panel = self._make_panel("MUSICAL SETTINGS")
         form = QFormLayout()
@@ -152,6 +195,15 @@ class HiroMainWindow(QMainWindow):
         self.base_length.setSuffix(" ticks")
         self.base_length.setValue(240)
 
+        form.addRow("Tempo", self.tempo)
+        form.addRow("Root", self.root_key)
+        form.addRow("Scale", self.scale)
+        form.addRow("Base length", self.base_length)
+        settings_panel.layout().addLayout(form)
+
+        options = QGroupBox("Advanced generation")
+        options_layout = QVBoxLayout(options)
+
         self.length_var = QDoubleSpinBox()
         self.length_var.setRange(0.0, 1.0)
         self.length_var.setSingleStep(0.05)
@@ -168,29 +220,26 @@ class HiroMainWindow(QMainWindow):
         self.seed.setRange(0, 2_147_483_647)
         self.seed.setValue(1234)
 
-        self.output_format = QComboBox()
-        self.output_format.addItems(["ustx", "ust"])
-
-        form.addRow("Tempo", self.tempo)
-        form.addRow("Root", self.root_key)
-        form.addRow("Scale", self.scale)
-        form.addRow("Base length", self.base_length)
-        form.addRow("Length variation", self.length_var)
-        form.addRow("Stretch probability", self.stretch_prob)
-        form.addRow("Seed", self.seed)
-        form.addRow("Output", self.output_format)
-        settings_panel.layout().addLayout(form)
-
-        options = QGroupBox("Generation")
-        options_layout = QVBoxLayout(options)
         self.use_motifs = QCheckBox("Use motifs")
         self.use_motifs.setChecked(True)
         self.quartertone = QCheckBox("Quarter-tone expression")
         self.lyrical_mode = QCheckBox("Phrase-aware melody")
         self.lyrical_mode.setChecked(True)
+
+        advanced_form = QFormLayout()
+        advanced_form.addRow("Length variation", self.length_var)
+        advanced_form.addRow("Stretch probability", self.stretch_prob)
+        advanced_form.addRow("Seed", self.seed)
+        options_layout.addLayout(advanced_form)
         for widget in (self.use_motifs, self.quartertone, self.lyrical_mode):
             options_layout.addWidget(widget)
         settings_panel.layout().addWidget(options)
+
+        self.output_format = QComboBox()
+        self.output_format.addItems(["ustx", "ust"])
+        output_row = QFormLayout()
+        output_row.addRow("Output", self.output_format)
+        settings_panel.layout().addLayout(output_row)
         settings_panel.layout().addStretch()
 
         generate_button = QPushButton("Generate")
@@ -202,7 +251,7 @@ class HiroMainWindow(QMainWindow):
         splitter.addWidget(lyrics_panel)
         splitter.addWidget(analysis_panel)
         splitter.addWidget(settings_panel)
-        splitter.setSizes([520, 620, 320])
+        splitter.setSizes([520, 700, 320])
         root_layout.addWidget(splitter, 1)
 
         footer = QHBoxLayout()
@@ -217,16 +266,27 @@ class HiroMainWindow(QMainWindow):
 
         self.setCentralWidget(root)
 
-    def _make_panel(self, title: str) -> QFrame:
-        panel = QFrame()
-        panel.setObjectName("panel")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(9)
-        label = QLabel(title)
-        label.setObjectName("section")
-        layout.addWidget(label)
-        return panel
+    def _build_menus(self) -> None:
+        bar = self.menuBar()
+
+        project = bar.addMenu("Project")
+        project.addAction(self.new_action)
+        project.addAction(self.open_action)
+        project.addAction(self.save_action)
+        project.addSeparator()
+        project.addAction(self.export_action)
+
+        generation = bar.addMenu("Generation")
+        generation.addAction(self.generate_action)
+        generation.addAction(self.random_seed_action)
+
+        analysis = bar.addMenu("Analyze")
+        analysis.addAction(self.analyze_action)
+        analysis.addAction(self.debug_action)
+
+        debug_menu = bar.addMenu("Debug")
+        debug_menu.addAction(self.load_example_action)
+        debug_menu.addAction(self.debug_action)
 
     def _build_actions(self) -> None:
         self.new_action.triggered.connect(self.new_document)
@@ -234,6 +294,10 @@ class HiroMainWindow(QMainWindow):
         self.save_action.triggered.connect(self.save_lyrics)
         self.generate_action.triggered.connect(self.generate)
         self.export_action.triggered.connect(self.export_project)
+        self.analyze_action.triggered.connect(self.analyze_lyrics)
+        self.random_seed_action.triggered.connect(self.randomize_seed)
+        self.load_example_action.triggered.connect(self.load_example)
+        self.debug_action.triggered.connect(self.show_debug_structure)
 
     def _build_config(self) -> GeneratorConfig:
         return GeneratorConfig(
@@ -249,6 +313,60 @@ class HiroMainWindow(QMainWindow):
             lyrical_mode=self.lyrical_mode.isChecked(),
         )
 
+    def _make_processor(self) -> HiroUSTProcessor:
+        processor = HiroUSTProcessor(self._build_config())
+        self.last_processor = processor
+        return processor
+
+    def analyze_lyrics(self) -> bool:
+        lyrics = self.lyrics_edit.toPlainText().strip()
+        if not lyrics:
+            QMessageBox.warning(self, self.APP_NAME, "Enter lyrics before analyzing.")
+            return False
+
+        try:
+            processor = self._make_processor()
+            doc = processor.lyric_parser.parse(lyrics, processor.phonemizer)
+            self._populate_structure(doc)
+            self.analysis_label.setText(
+                f"Backend: {doc.analyzer_backend} · "
+                f"Sections: {len(doc.sections)} · Words: {doc.word_count} · "
+                f"Morphemes: {doc.morpheme_count} · Kanji morphemes: {doc.kanji_word_count}"
+            )
+            self.preview_tabs.setCurrentWidget(self.structure_table)
+            self._set_status("Analysis complete")
+            return True
+        except Exception as exc:
+            self._set_status("Analysis failed")
+            QMessageBox.critical(self, self.APP_NAME, f"{type(exc).__name__}: {exc}")
+            return False
+
+    def _populate_structure(self, doc) -> None:
+        self.structure_table.setRowCount(0)
+        for section in doc.sections:
+            for line in section.lines:
+                for word in line.words:
+                    for morpheme in word.morphemes:
+                        row = self.structure_table.rowCount()
+                        self.structure_table.insertRow(row)
+                        flags = []
+                        if morpheme.is_kanji:
+                            flags.append("KANJI")
+                        elif morpheme.token.kana:
+                            flags.append("KANA")
+                        if morpheme.is_punctuation:
+                            flags.append("PUNCT")
+                        values = [
+                            morpheme.surface,
+                            morpheme.reading or "—",
+                            morpheme.pos or "—",
+                            word.text,
+                            ", ".join(flags) or "—",
+                            " ".join(morpheme.phonemes) or "—",
+                        ]
+                        for column, value in enumerate(values):
+                            self.structure_table.setItem(row, column, QTableWidgetItem(value))
+
     def generate(self) -> None:
         lyrics = self.lyrics_edit.toPlainText().strip()
         if not lyrics:
@@ -260,17 +378,18 @@ class HiroMainWindow(QMainWindow):
         QApplication.processEvents()
 
         try:
-            config = self._build_config()
-            processor = HiroUSTProcessor(config)
+            if not self.analyze_lyrics():
+                return
+            processor = self._make_processor()
             output_format = self.output_format.currentText()
-
             self.last_output = processor.process_lyrics(
                 lyrics,
                 project_name=self.project_edit.text().strip() or "Hiro_Main",
                 output_format=output_format,
             )
             self.last_output_format = output_format
-            self._refresh_preview(processor, lyrics, self.last_output)
+            self._refresh_notes_preview(self.last_output)
+            self.preview_tabs.setCurrentWidget(self.notes_table)
             self._set_status("Generation complete")
         except Exception as exc:
             self._set_status("Generation failed")
@@ -278,11 +397,7 @@ class HiroMainWindow(QMainWindow):
         finally:
             self.generate_action.setEnabled(True)
 
-    def _refresh_preview(self, processor: HiroUSTProcessor, lyrics: str, output: str) -> None:
-        doc = processor.lyric_parser.parse(lyrics, processor.phonemizer)
-        words = [word for section in doc.sections for line in section.lines for word in line.words]
-        phoneme_count = sum(len(word.phonemes) for word in words)
-
+    def _refresh_notes_preview(self, output: str) -> None:
         notes = []
         if self.last_output_format == "ustx":
             try:
@@ -307,14 +422,81 @@ class HiroMainWindow(QMainWindow):
             for column, value in enumerate(values):
                 self.notes_table.setItem(row, column, QTableWidgetItem(value))
 
-        note_count_text = str(len(notes)) if notes else "ready"
         self.analysis_label.setText(
-            f"Sections: {len(doc.sections)}   Words: {len(words)}   "
-            f"Phonemes: {phoneme_count}   Generated notes: {note_count_text}"
+            self.analysis_label.text() + f" · Generated notes: {len(notes) or 'UST'}"
         )
-        self.progress_label.setText(
-            f"{len(doc.sections)} section(s) · {len(words)} word(s) · seed {self.seed.value()}"
+
+    def show_debug_structure(self) -> None:
+        if not self.analyze_lyrics():
+            return
+
+        processor = self.last_processor
+        if processor is None:
+            return
+        doc = processor.lyric_parser.parse(
+            self.lyrics_edit.toPlainText().strip(),
+            processor.phonemizer,
         )
+
+        payload = {
+            "backend": doc.analyzer_backend,
+            "sections": [
+                {
+                    "name": section.name,
+                    "lines": [
+                        {
+                            "text": line.text,
+                            "words": [
+                                {
+                                    "surface": word.text,
+                                    "reading": word.reading,
+                                    "structure": word.structure,
+                                    "morphemes": [
+                                        {
+                                            "surface": m.surface,
+                                            "reading": m.reading,
+                                            "lemma": m.token.lemma,
+                                            "normalized": m.token.normalized,
+                                            "pos": m.pos,
+                                            "phonemes": m.phonemes,
+                                            "kanji": m.is_kanji,
+                                        }
+                                        for m in word.morphemes
+                                    ],
+                                }
+                                for word in line.words
+                            ],
+                        }
+                        for line in section.lines
+                    ],
+                }
+                for section in doc.sections
+            ],
+        }
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Hiro UST — Debug Structure")
+        dialog.resize(1000, 700)
+        layout = QVBoxLayout(dialog)
+        debug_edit = QPlainTextEdit()
+        debug_edit.setReadOnly(True)
+        debug_edit.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+        layout.addWidget(debug_edit)
+        dialog.exec()
+
+    def randomize_seed(self) -> None:
+        self.seed.setValue(random.randint(0, 2_147_483_647))
+        self._set_status(f"Seed: {self.seed.value()}")
+
+    def load_example(self) -> None:
+        self.current_file = None
+        self.last_output = ""
+        self.project_edit.setText("hiro_example")
+        self.lyrics_edit.setPlainText(EXAMPLE_LYRICS)
+        self.notes_table.setRowCount(0)
+        self.structure_table.setRowCount(0)
+        self.analysis_label.setText("Example loaded. Analyze or Generate.")
+        self._set_status("Example lyrics loaded")
 
     def new_document(self) -> None:
         self.current_file = None
@@ -322,7 +504,8 @@ class HiroMainWindow(QMainWindow):
         self.project_edit.setText("Hiro_Main")
         self.lyrics_edit.clear()
         self.notes_table.setRowCount(0)
-        self.analysis_label.setText("No generation yet.")
+        self.structure_table.setRowCount(0)
+        self.analysis_label.setText("No analysis yet.")
         self.export_path_label.clear()
         self._set_status("New document")
 
@@ -341,7 +524,9 @@ class HiroMainWindow(QMainWindow):
         self._set_status(f"Opened {file_path.name}")
 
     def save_lyrics(self) -> None:
-        default = self.current_file or (Path.cwd() / f"{self.project_edit.text().strip() or 'Hiro_Main'}.txt")
+        default = self.current_file or (
+            Path.cwd() / f"{self.project_edit.text().strip() or 'Hiro_Main'}.txt"
+        )
         path, _ = QFileDialog.getSaveFileName(
             self, "Save lyrics", str(default),
             "Text files (*.txt);;Markdown (*.md);;All files (*)"
@@ -388,7 +573,9 @@ class HiroMainWindow(QMainWindow):
         for widget, key in numeric_widgets:
             value = self.settings.value(key)
             if value is not None:
-                widget.setValue(float(value) if isinstance(widget, QDoubleSpinBox) else int(value))
+                widget.setValue(
+                    float(value) if isinstance(widget, QDoubleSpinBox) else int(value)
+                )
 
         for widget, key in ((self.scale, "scale"), (self.output_format, "output")):
             value = self.settings.value(key)
@@ -403,6 +590,9 @@ class HiroMainWindow(QMainWindow):
             value = self.settings.value(key)
             if value is not None:
                 widget.setChecked(str(value).lower() in {"1", "true", "yes"})
+
+        if not self.lyrics_edit.toPlainText().strip():
+            self.load_example()
 
     def closeEvent(self, event) -> None:
         self.settings.setValue("geometry", self.saveGeometry())

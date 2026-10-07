@@ -77,6 +77,28 @@ seed
 
 This makes it possible to change expression without accidentally changing the melody.
 
+## Japanese linguistic analysis
+
+The `analyzer/` layer is intentionally above the mora converter. `JapaneseAnalyzer` calls the repository's vendored Kuroshiro/Kuromoji build and dictionary through `vendor/kuroshiro_bridge.js`. The rest of Hiro receives a stable `AnalyzerToken` model containing surface form, reading, lemma, POS, kanji flag, punctuation flag, and source offsets.
+
+The intended flow is:
+
+```text
+surface lyric
+    ↓
+JapaneseAnalyzer
+    ↓
+word / morpheme structure
+    ↓
+reading
+    ↓
+mora-aware phonemizer
+    ↓
+UTAU phonemes
+```
+
+The analyzer has a safe fallback path when Node.js or the vendored runtime is unavailable, so the editor can still open and inspect lyrics.
+
 ## Japanese phonetics
 
 Important units include:
@@ -211,4 +233,4 @@ The PySide6 migration removes the GUI dependency from the generator and makes th
 
 The next milestone is to introduce explicit musical `NoteEvent` and `PhraseEvent` objects. After that, expression can be developed as a separate layer instead of being scattered through UST generation.
 
-Kuromoji/Kuroshiro assets are currently vendored for a future Japanese-analysis layer. They should feed structured linguistic information into the lyric pipeline rather than becoming part of the low-level mora converter.
+Kuromoji/Kuroshiro assets are vendored and now used by the Japanese-analysis layer. They feed structured linguistic information into the lyric pipeline rather than becoming part of the low-level mora converter.

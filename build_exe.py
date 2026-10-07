@@ -27,10 +27,14 @@ def build_exe() -> int:
         "--windowed",
         f"--paths={src_path}",
         "--collect-all=hiro_ust",
+        "--add-data=vendor;vendor",
         "--hidden-import=hiro_ust",
         "--hidden-import=hiro_ust.ui",
         "--hidden-import=hiro_ust.ui.main_window",
         "--hidden-import=hiro_ust.ui.theme",
+        "--hidden-import=hiro_ust.ui.highlighter",
+        "--hidden-import=hiro_ust.analyzer",
+        "--hidden-import=hiro_ust.analyzer.japanese",
         "--hidden-import=PySide6",
         "--hidden-import=PySide6.QtCore",
         "--hidden-import=PySide6.QtGui",
@@ -47,7 +51,7 @@ def build_exe() -> int:
 
     cmd.append(str(src_path / "hiro_ust" / "__main__.py"))
 
-    print("Building Hiro UST Generator with PySide6…")
+    print("Building Hiro UST Generator with PySide6 and vendored Kuromoji…")
     result = subprocess.run(cmd, cwd=project_root)
     if result.returncode == 0:
         exe_path = dist_path / "Hiro_UST_Generator.exe"
