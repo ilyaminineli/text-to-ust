@@ -136,11 +136,6 @@ class PianoRollWidget(QFrame):
         self._update_size()
         self._emit_selection()
         self.update()
-        QTimer.singleShot(0, self._fit_if_needed)
-
-    def _fit_if_needed(self) -> None:
-        if self._fit_mode and self.width() > 0:
-            self.fit_to_width(max(280, self.width()))
 
     def fit_to_width(self, available_width: int) -> None:
         total = max(1, self._total_duration())
@@ -519,6 +514,7 @@ class MelodyPreviewPanel(QWidget):
         self.play_selection_button.setEnabled(False)
         self.stop_button.setEnabled(bool(notes))
         self.selection_label.setText("No selection")
+        QTimer.singleShot(0, self.fit)
 
     def fit(self) -> None:
         self.piano_roll.fit_to_width(max(280, self.scroll.viewport().width()))
