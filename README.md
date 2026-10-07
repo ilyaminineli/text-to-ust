@@ -166,6 +166,14 @@ Section markers such as `[Verse 1]`, `[Chorus]`, and `[Bridge]` are syntax-highl
 
 The new melody layer plans phrases before rendering individual notes. It chooses a contour, register, interval motif, and cadence, then maps that musical plan onto the available scale and vocal range. This makes motif reuse and phrase-level variation possible without hard-coding individual note sequences.
 
+### Melody preview
+
+After generation, the PySide6 editor exposes a lightweight piano-roll preview in the **Melody** tab. Notes are rendered with their UST/USTX tick positions, MIDI pitches, durations, and lyrics, with phrase-scale grid lines for quick visual inspection.
+
+The preview also includes a tiny synthesized audition path. It renders the current melody into a temporary WAV and plays it through Qt Multimedia when available, with a Windows fallback. This is intentionally a diagnostic sound rather than a replacement for the UTAU render.
+
+Notes can be selected as a contiguous range directly in the piano roll. The selection is surfaced as a `(start_tick, end_tick)` signal, so the same UI model can later become the input to **range-based regeneration**: regenerate only the selected phrase/region while preserving the rest of the arrangement.
+
 ### Scales
 
 The melody can be constrained to configured scales, including common diatonic, pentatonic, blues, whole-tone, octatonic, chromatic, and experimental palettes available in the project.
