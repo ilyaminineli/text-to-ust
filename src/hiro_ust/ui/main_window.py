@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QSpinBox,
     QSplitter,
     QStatusBar,
@@ -44,6 +45,7 @@ from ..core import HiroUSTProcessor
 from ..data.example_lyrics import EXAMPLE_LYRICS
 from ..melody import SCALES
 from .highlighter import LyricHighlighter
+from .melody_preview import MelodyPreviewPanel, SimpleMelodySynth, notes_from_output
 from .theme import apply_theme
 
 
@@ -59,6 +61,8 @@ class HiroMainWindow(QMainWindow):
         self.last_output = ""
         self.last_output_format = "ustx"
         self.last_processor: HiroUSTProcessor | None = None
+        self.melody_synth = SimpleMelodySynth()
+        self.melody_selection: tuple[int, int] = (0, 0)
 
         self.setWindowTitle(self.APP_NAME)
         self.resize(1500, 920)
@@ -168,7 +172,13 @@ class HiroMainWindow(QMainWindow):
         self.notes_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.notes_table.horizontalHeader().setStretchLastSection(True)
 
+        self.melody_preview = MelodyPreviewPanel()
+        self.melody_preview.selectionChanged.connect(self._on_melody_selection_changed)
+        self.melody_preview.play_button.clicked.connect(self._play_full_melody)
+        self.melody_preview.play_selection_button.clicked.connect(self._play_selected_melody)
+
         self.preview_tabs.addTab(self.structure_table, "Structure")
+        self.preview_tabs.addTab(self.melody_preview, "Melody")
         self.preview_tabs.addTab(self.notes_table, "Notes")
         analysis_panel.layout().addWidget(self.preview_tabs, 1)
 
@@ -265,6 +275,18 @@ class HiroMainWindow(QMainWindow):
         root_layout.addLayout(footer)
 
         self.setCentralWidget(root)
+
+    def _make_panel(self, title_text: str) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        title = QLabel(title_text)
+        title.setObjectName("section")
+        layout.addWidget(title)
+        return panel
 
     def _build_menus(self) -> None:
         bar = self.menuBar()
@@ -389,7 +411,7 @@ class HiroMainWindow(QMainWindow):
             )
             self.last_output_format = output_format
             self._refresh_notes_preview(self.last_output)
-            self.preview_tabs.setCurrentWidget(self.notes_table)
+            self.preview_tabs.setCurrentWidget(self.melody_preview)
             self._set_status("Generation complete")
         except Exception as exc:
             self._set_status("Generation failed")
@@ -398,15 +420,8 @@ class HiroMainWindow(QMainWindow):
             self.generate_action.setEnabled(True)
 
     def _refresh_notes_preview(self, output: str) -> None:
-        notes = []
-        if self.last_output_format == "ustx":
-            try:
-                import yaml
-                parsed = yaml.safe_load(output) or {}
-                voice_parts = parsed.get("voice_parts", [])
-                notes = voice_parts[0].get("notes", []) if voice_parts else []
-            except Exception:
-                notes = []
+        notes = notes_from_output(output, self.last_output_format)
+        self.melody_preview.set_notes(notes)
 
         self.notes_table.setRowCount(0)
         for index, note in enumerate(notes[:500], 1):
@@ -414,17 +429,45 @@ class HiroMainWindow(QMainWindow):
             self.notes_table.insertRow(row)
             values = [
                 str(index),
-                str(note.get("lyric", "")),
-                str(note.get("tone", "")),
-                str(note.get("duration", "")),
-                str(note.get("position", "")),
+                note.lyric,
+                str(note.tone),
+                str(note.duration),
+                str(note.position),
             ]
             for column, value in enumerate(values):
                 self.notes_table.setItem(row, column, QTableWidgetItem(value))
 
         self.analysis_label.setText(
-            self.analysis_label.text() + f" · Generated notes: {len(notes) or 'UST'}"
+            self.analysis_label.text() + f" · Generated notes: {len(notes)}"
         )
+
+    def _on_melody_selection_changed(self, start: int, end: int) -> None:
+        self.melody_selection = (start, end)
+        if end > start:
+            self._set_status(f"Melody range selected: {start}–{end} ticks")
+        elif self.last_output:
+            self._set_status("Melody preview ready")
+
+    def _play_full_melody(self) -> None:
+        notes = self.melody_preview.piano_roll.notes
+        if not notes:
+            return
+        try:
+            self.melody_synth.play(notes, self.tempo.value())
+            self._set_status("Playing melody preview")
+        except Exception as exc:
+            QMessageBox.warning(self, self.APP_NAME, f"Audio preview unavailable: {exc}")
+
+    def _play_selected_melody(self) -> None:
+        notes = self.melody_preview.piano_roll.selected_notes()
+        if not notes:
+            return
+        start, end = self.melody_selection
+        try:
+            self.melody_synth.play(notes, self.tempo.value(), (start, end))
+            self._set_status(f"Playing selected melody range: {start}–{end}")
+        except Exception as exc:
+            QMessageBox.warning(self, self.APP_NAME, f"Audio preview unavailable: {exc}")
 
     def show_debug_structure(self) -> None:
         if not self.analyze_lyrics():
@@ -495,6 +538,7 @@ class HiroMainWindow(QMainWindow):
         self.lyrics_edit.setPlainText(EXAMPLE_LYRICS)
         self.notes_table.setRowCount(0)
         self.structure_table.setRowCount(0)
+        self.melody_preview.set_notes([])
         self.analysis_label.setText("Example loaded. Analyze or Generate.")
         self._set_status("Example lyrics loaded")
 
@@ -505,6 +549,7 @@ class HiroMainWindow(QMainWindow):
         self.lyrics_edit.clear()
         self.notes_table.setRowCount(0)
         self.structure_table.setRowCount(0)
+        self.melody_preview.set_notes([])
         self.analysis_label.setText("No analysis yet.")
         self.export_path_label.clear()
         self._set_status("New document")
