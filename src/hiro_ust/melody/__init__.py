@@ -1,32 +1,12 @@
-"""
-Melody generation and musical logic module.
-
-Provides intelligent melody generation with support for:
-- Multiple musical scales
-- Voice leading and motion control
-- Motif memory and repetition
-- Chord progressions
-- Accent patterns (Japanese pitch accent)
-- Intone levels
-
-Components:
-  - MelodyBrain: Main melody generation engine
-  - Scales: Musical scale definitions
-  - Intone settings: Intone params
-  - Envelopes: Pitch envelope presets
-"""
-
-from .melody_logic import MelodyBrain
+"""Melody generation package."""
+from .melody_logic import MelodyBrain, MotifMemory, NoteMarkov, VOICE_RANGE_BY_ROOT
+from .phrase_engine import MelodyPolicy, PhraseMelodyEngine, PhrasePlan
 from .scales import SCALES
 from .intone_utils import get_intone_settings
 from .envelopes import ENVELOPE_PRESETS
-from ..logger import get_logger
-
-logger = get_logger(__name__)
 
 __all__ = [
-    "MelodyBrain",
-    "SCALES",
-    "get_intone_settings",
-    "ENVELOPE_PRESETS",
+    "MelodyBrain", "MotifMemory", "NoteMarkov", "VOICE_RANGE_BY_ROOT",
+    "MelodyPolicy", "PhraseMelodyEngine", "PhrasePlan",
+    "SCALES", "get_intone_settings", "ENVELOPE_PRESETS",
 ]
