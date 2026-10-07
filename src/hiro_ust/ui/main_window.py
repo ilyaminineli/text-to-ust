@@ -61,6 +61,7 @@ class HiroMainWindow(QMainWindow):
         self.last_output = ""
         self.last_output_format = "ustx"
         self.last_processor: HiroUSTProcessor | None = None
+        self.analysis_summary = ""
         self.melody_synth = SimpleMelodySynth()
         self.melody_selection: tuple[int, int] = (0, 0)
 
@@ -176,14 +177,21 @@ class HiroMainWindow(QMainWindow):
         self.melody_preview.selectionChanged.connect(self._on_melody_selection_changed)
         self.melody_preview.play_button.clicked.connect(self._play_full_melody)
         self.melody_preview.play_selection_button.clicked.connect(self._play_selected_melody)
+        self.melody_preview.stop_button.clicked.connect(self._stop_melody)
 
         self.preview_tabs.addTab(self.structure_table, "Structure")
         self.preview_tabs.addTab(self.melody_preview, "Melody")
         self.preview_tabs.addTab(self.notes_table, "Notes")
         analysis_panel.layout().addWidget(self.preview_tabs, 1)
 
-        settings_panel = self._make_panel("MUSICAL SETTINGS")
-        form = QFormLayout()
+        settings_panel = self._make_panel("INSPECTOR")
+
+        inspector_tabs = QTabWidget()
+        inspector_tabs.setObjectName("inspector")
+
+        song_tab = QWidget()
+        song_form = QFormLayout(song_tab)
+        song_form.setContentsMargins(4, 4, 4, 4)
 
         self.tempo = QDoubleSpinBox()
         self.tempo.setRange(HiroConfig.MIN_TEMPO, HiroConfig.MAX_TEMPO)
@@ -205,14 +213,18 @@ class HiroMainWindow(QMainWindow):
         self.base_length.setSuffix(" ticks")
         self.base_length.setValue(240)
 
-        form.addRow("Tempo", self.tempo)
-        form.addRow("Root", self.root_key)
-        form.addRow("Scale", self.scale)
-        form.addRow("Base length", self.base_length)
-        settings_panel.layout().addLayout(form)
+        self.output_format = QComboBox()
+        self.output_format.addItems(["ustx", "ust"])
 
-        options = QGroupBox("Advanced generation")
-        options_layout = QVBoxLayout(options)
+        song_form.addRow("Tempo", self.tempo)
+        song_form.addRow("Root", self.root_key)
+        song_form.addRow("Scale", self.scale)
+        song_form.addRow("Base length", self.base_length)
+        song_form.addRow("Output", self.output_format)
+
+        melody_tab = QWidget()
+        melody_form = QFormLayout(melody_tab)
+        melody_form.setContentsMargins(4, 4, 4, 4)
 
         self.length_var = QDoubleSpinBox()
         self.length_var.setRange(0.0, 1.0)
@@ -232,31 +244,29 @@ class HiroMainWindow(QMainWindow):
 
         self.use_motifs = QCheckBox("Use motifs")
         self.use_motifs.setChecked(True)
-        self.quartertone = QCheckBox("Quarter-tone expression")
         self.lyrical_mode = QCheckBox("Phrase-aware melody")
         self.lyrical_mode.setChecked(True)
 
-        advanced_form = QFormLayout()
-        advanced_form.addRow("Length variation", self.length_var)
-        advanced_form.addRow("Stretch probability", self.stretch_prob)
-        advanced_form.addRow("Seed", self.seed)
-        options_layout.addLayout(advanced_form)
-        for widget in (self.use_motifs, self.quartertone, self.lyrical_mode):
-            options_layout.addWidget(widget)
-        settings_panel.layout().addWidget(options)
+        melody_form.addRow("Length variation", self.length_var)
+        melody_form.addRow("Stretch probability", self.stretch_prob)
+        melody_form.addRow("Seed", self.seed)
+        melody_form.addRow(self.use_motifs)
+        melody_form.addRow(self.lyrical_mode)
 
-        self.output_format = QComboBox()
-        self.output_format.addItems(["ustx", "ust"])
-        output_row = QFormLayout()
-        output_row.addRow("Output", self.output_format)
-        settings_panel.layout().addLayout(output_row)
-        settings_panel.layout().addStretch()
+        expression_tab = QWidget()
+        expression_form = QFormLayout(expression_tab)
+        expression_form.setContentsMargins(4, 4, 4, 4)
+        self.quartertone = QCheckBox("Quarter-tone expression")
+        expression_form.addRow(self.quartertone)
+        expression_form.addRow(QLabel(
+            "Expression controls will grow here as the editor gains "
+            "note-level and phrase-level editing."
+        ))
 
-        generate_button = QPushButton("Generate")
-        generate_button.setObjectName("primary")
-        generate_button.setMinimumHeight(42)
-        generate_button.clicked.connect(self.generate)
-        settings_panel.layout().addWidget(generate_button)
+        inspector_tabs.addTab(song_tab, "Song")
+        inspector_tabs.addTab(melody_tab, "Melody")
+        inspector_tabs.addTab(expression_tab, "Expression")
+        settings_panel.layout().addWidget(inspector_tabs, 1)
 
         splitter.addWidget(lyrics_panel)
         splitter.addWidget(analysis_panel)
@@ -350,11 +360,12 @@ class HiroMainWindow(QMainWindow):
             processor = self._make_processor()
             doc = processor.lyric_parser.parse(lyrics, processor.phonemizer)
             self._populate_structure(doc)
-            self.analysis_label.setText(
+            self.analysis_summary = (
                 f"Backend: {doc.analyzer_backend} · "
                 f"Sections: {len(doc.sections)} · Words: {doc.word_count} · "
                 f"Morphemes: {doc.morpheme_count} · Kanji morphemes: {doc.kanji_word_count}"
             )
+            self.analysis_label.setText(self.analysis_summary)
             self.preview_tabs.setCurrentWidget(self.structure_table)
             self._set_status("Analysis complete")
             return True
@@ -437,9 +448,8 @@ class HiroMainWindow(QMainWindow):
             for column, value in enumerate(values):
                 self.notes_table.setItem(row, column, QTableWidgetItem(value))
 
-        self.analysis_label.setText(
-            self.analysis_label.text() + f" · Generated notes: {len(notes)}"
-        )
+        generated = f" · Generated notes: {len(notes)}"
+        self.analysis_label.setText(f"{self.analysis_summary}{generated}")
 
     def _on_melody_selection_changed(self, start: int, end: int) -> None:
         self.melody_selection = (start, end)
@@ -457,6 +467,10 @@ class HiroMainWindow(QMainWindow):
             self._set_status("Playing melody preview")
         except Exception as exc:
             QMessageBox.warning(self, self.APP_NAME, f"Audio preview unavailable: {exc}")
+
+    def _stop_melody(self) -> None:
+        self.melody_synth.stop()
+        self._set_status("Melody preview stopped")
 
     def _play_selected_melody(self) -> None:
         notes = self.melody_preview.piano_roll.selected_notes()
@@ -539,6 +553,7 @@ class HiroMainWindow(QMainWindow):
         self.notes_table.setRowCount(0)
         self.structure_table.setRowCount(0)
         self.melody_preview.set_notes([])
+        self.analysis_summary = ""
         self.analysis_label.setText("Example loaded. Analyze or Generate.")
         self._set_status("Example lyrics loaded")
 
@@ -550,6 +565,7 @@ class HiroMainWindow(QMainWindow):
         self.notes_table.setRowCount(0)
         self.structure_table.setRowCount(0)
         self.melody_preview.set_notes([])
+        self.analysis_summary = ""
         self.analysis_label.setText("No analysis yet.")
         self.export_path_label.clear()
         self._set_status("New document")
