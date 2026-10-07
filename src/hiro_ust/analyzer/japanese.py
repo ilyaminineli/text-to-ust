@@ -16,6 +16,36 @@ def contains_kanji(text: str) -> bool:
     return any(any(a <= ch <= b for a, b in KANJI_RANGES) for ch in text)
 
 
+_VOWEL_BY_HIRAGANA = {
+    **dict.fromkeys("あかがさざただなはばぱまゃやらわぁ", "あ"),
+    **dict.fromkeys("いきぎしじちぢにひびぴみりぃ", "い"),
+    **dict.fromkeys("うくぐすずつづぬふぶぷむゅゆるぅ", "う"),
+    **dict.fromkeys("えけげせぜてでねへべぺめれぇ", "え"),
+    **dict.fromkeys("おこごそぞとどのほぼぽもょよろをぉ", "お"),
+}
+
+
+def normalize_japanese_reading(text: str) -> str:
+    """Normalize kana reading for singing-friendly UTAU phonemization."""
+    if not text:
+        return ""
+    value = "".join(
+        chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch
+        for ch in text
+    )
+    result: list[str] = []
+    last_vowel = ""
+    for ch in value:
+        if ch == "ー":
+            result.append(last_vowel or ch)
+            continue
+        result.append(ch)
+        vowel = _VOWEL_BY_HIRAGANA.get(ch)
+        if vowel:
+            last_vowel = vowel
+    return "".join(result)
+
+
 def _is_kana(text: str) -> bool:
     return bool(text) and all(
         "\u3040" <= ch <= "\u309f" or "\u30a0" <= ch <= "\u30ff" or ch == "ー"
@@ -39,11 +69,7 @@ class AnalyzerToken:
 
     @property
     def reading_hiragana(self) -> str:
-        value = self.reading or self.surface
-        return "".join(
-            chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch
-            for ch in value
-        )
+        return normalize_japanese_reading(self.reading or self.surface)
 
 
 class JapaneseAnalyzer:
@@ -149,4 +175,4 @@ class JapaneseAnalyzer:
         return result
 
 
-__all__ = ["AnalyzerToken", "JapaneseAnalyzer", "contains_kanji"]
+__all__ = ["AnalyzerToken", "JapaneseAnalyzer", "contains_kanji", "normalize_japanese_reading"]
