@@ -83,9 +83,6 @@ text-to-ust/
         ├── config.py
         ├── constants.py
         ├── logger.py
-        ├── analyzer/             ← Japanese linguistic analysis (Kuromoji-ready)
-        ├── converter/
-        ├── data/
         ├── analyzer/           ← Japanese morphology / kanji / readings
         ├── converter/
         ├── data/
@@ -128,7 +125,7 @@ Hiro uses a `src/` package layout. Install it in editable mode during developmen
 python -m pip install -e .
 ```
 
-Runtime dependencies are kept in `requirements.txt` / `pyproject.toml`. The GUI uses PySide6. Development and packaging tools such as PyInstaller are kept in `requirements-dev.txt`.
+Runtime dependencies are kept in `requirements.txt` / `pyproject.toml`. The GUI uses PySide6. The kanji-reading backend uses the vendored Kuroshiro/Kuromoji assets through Node.js. Development and packaging tools such as PyInstaller are kept in `requirements-dev.txt`.
 
 ## Input, word structure, and kanji
 
@@ -141,7 +138,7 @@ For example, a unit containing kanji can be represented as:
 数える → かぞえる → verb → ka zo e ru
 ```
 
-SudachiPy provides the embedded Japanese morphological analysis used by the application. The editor can preview the analyzed surface forms, readings, POS tags, kanji flags, and generated phonemes before melody generation.
+The repository's vendored Kuroshiro/Kuromoji analyzer provides the Japanese morphological analysis used by the application. The editor can preview analyzed surface forms, readings, POS tags, kanji flags, and generated phonemes before melody generation. The desktop bridge uses the repository's `vendor/kuromoji/dict` directly.
 
 Examples:
 
