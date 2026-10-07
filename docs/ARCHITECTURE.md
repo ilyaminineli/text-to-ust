@@ -44,15 +44,7 @@ The mora trie allows longest-match parsing. This prevents combinations such as `
 ### `melody/`
 Musical decision making.
 
-The melody layer contains:
-
-- scale constraints
-- voice leading
-- phrase contours
-- motif memory
-- Markov-style transitions
-- chord-aware note selection
-- accent-aware pitch decisions
+The melody layer contains both the existing candidate-scoring engine and the newer phrase-first layer. The phrase-first engine plans a phrase contour, register, interval motif, and cadence before rendering individual notes. This is the direction for the next generation system.
 
 Randomness should always be seedable. A fixed seed is useful for debugging, regression tests, and comparing individual algorithm changes.
 
@@ -67,7 +59,9 @@ Voice-specific ranges, presets, envelopes, and phonetic utilities.
 Voice configuration should affect generation through explicit parameters rather than hard-coded special cases.
 
 ### `ui/`
-The graphical interface. UI code should call the public generation API and should not contain melody-generation logic.
+The PySide6 graphical interface. The UI owns controls, file dialogs, settings, preview tables, and presentation styling. It calls `HiroUSTProcessor` but contains no melody-generation rules.
+
+The main window is deliberately editor-like: lyrics on the left, generated-note analysis in the center, and compact musical controls on the right. Generate/export actions stay in the toolbar.
 
 ## Determinism
 
@@ -213,4 +207,8 @@ Golden UST fixtures are particularly useful: the same lyrics, configuration, and
 
 ## Development direction
 
-The next architectural milestone is to keep the public pipeline independent from legacy development code and move toward explicit musical `NoteEvent` objects. After that, expression can be developed as a separate layer instead of being scattered through UST generation.
+The PySide6 migration removes the GUI dependency from the generator and makes the application shell replaceable without changing the musical API.
+
+The next milestone is to introduce explicit musical `NoteEvent` and `PhraseEvent` objects. After that, expression can be developed as a separate layer instead of being scattered through UST generation.
+
+Kuromoji/Kuroshiro assets are currently vendored for a future Japanese-analysis layer. They should feed structured linguistic information into the lyric pipeline rather than becoming part of the low-level mora converter.
