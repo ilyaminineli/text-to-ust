@@ -2,5 +2,3 @@
 numpy>=1.26.0
 PyYAML>=6.0
 PySide6>=6.8,<7
-SudachiPy>=0.6.11,<0.7
-sudachidict_small==20250515
