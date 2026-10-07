@@ -120,17 +120,32 @@ class JapaneseAnalyzer:
         result: list[list[AnalyzerToken]] = []
         for text, raw_tokens in zip(texts, raw_batches):
             tokens: list[AnalyzerToken] = []
+            cursor = 0
             for token in raw_tokens:
                 surface = str(token.get("surface", ""))
                 if not surface:
                     continue
-                start = max(0, int(token.get("word_position", 1)) - 1)
+
+                # Kuromoji's word_position is UTF-16-ish byte-oriented depending
+                # on the bridge/runtime. Resolve positions against the actual
+                # Python string instead of assuming code-unit arithmetic.
+                hinted = max(0, int(token.get("word_position", 1)) - 1)
+                position = text.find(surface, cursor)
+                if position < 0:
+                    position = text.find(surface, min(hinted, len(text)))
+                if position < 0:
+                    position = min(hinted, len(text))
+
+                start = position
                 end = min(len(text), start + len(surface))
+                cursor = end
+
                 pos = str(token.get("pos", ""))
+                reading = str(token.get("reading", "")) or surface
                 tokens.append(
                     AnalyzerToken(
                         surface=surface,
-                        reading=str(token.get("reading", "")) or surface,
+                        reading=reading,
                         lemma=str(token.get("lemma", "")) or surface,
                         normalized=surface,
                         pos=pos,
