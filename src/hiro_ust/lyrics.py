@@ -113,15 +113,49 @@ class LyricDocument:
 
 
 class LyricParser:
-    """Parse sections, user-defined word boundaries, and Japanese morphemes."""
+    """Parse sections, preserve lyricist grouping, and analyze whole lines.
+
+    Whitespace/full-width spaces are musical grouping hints, not linguistic
+    boundaries. Kuromoji therefore receives the complete lyric line first;
+    returned morphemes are then assigned back to the source units.
+    """
 
     def __init__(self, analyzer: JapaneseAnalyzer | None = None):
         self.analyzer = analyzer or JapaneseAnalyzer()
 
     @staticmethod
-    def _split_units(line: str) -> list[str]:
-        # Full-width spaces are especially common in Japanese lyric sheets.
-        return [part for part in line.replace("\u3000", " ").split() if part]
+    def _split_units(line: str) -> list[tuple[str, int, int]]:
+        normalized = line.replace("\u3000", " ")
+        result: list[tuple[str, int, int]] = []
+        cursor = 0
+        for part in normalized.split():
+            start = normalized.find(part, cursor)
+            end = start + len(part)
+            result.append((part, start, end))
+            cursor = end
+        return result
+
+    @staticmethod
+    def _assign_token_to_unit(
+        token: AnalyzerToken,
+        spans: list[tuple[str, int, int]],
+    ) -> int:
+        if not spans:
+            return -1
+
+        center = (token.start + token.end) / 2
+        for index, (_, start, end) in enumerate(spans):
+            if start <= center < end:
+                return index
+
+        # Punctuation may sit directly after a unit with no whitespace.
+        if token.start >= spans[-1][1]:
+            return len(spans) - 1
+
+        return min(
+            range(len(spans)),
+            key=lambda i: abs(center - ((spans[i][1] + spans[i][2]) / 2)),
+        )
 
     def parse(self, text: str, phonemizer) -> LyricDocument:
         if not isinstance(text, str) or not text.strip():
@@ -130,6 +164,10 @@ class LyricParser:
         sections: list[LyricSection] = []
         current = LyricSection("Main")
         sections.append(current)
+
+        pending: list[
+            tuple[LyricSection, str, str, list[tuple[str, int, int]]]
+        ] = []
 
         for raw in text.splitlines():
             line = raw.strip()
@@ -141,10 +179,30 @@ class LyricParser:
                 sections.append(current)
                 continue
 
+            normalized = line.replace("\u3000", " ")
+            spans = self._split_units(normalized)
+            if spans:
+                pending.append((current, normalized, line, spans))
+
+        analyses = self.analyzer.analyze_many([item[1] for item in pending])
+
+        for (section, normalized, original, spans), tokens in zip(pending, analyses):
+            buckets: list[list[AnalyzerToken]] = [[] for _ in spans]
+
+            for token in tokens:
+                index = self._assign_token_to_unit(token, spans)
+                if index >= 0:
+                    buckets[index].append(token)
+
+            # Keep a safe path for unexpected analyzer failures.
+            if not any(buckets):
+                for index, (unit, _, _) in enumerate(spans):
+                    buckets[index] = self.analyzer.analyze(unit)
+
             words: list[LyricWord] = []
-            for unit in self._split_units(line):
+            for index, (unit, _, _) in enumerate(spans):
                 morphemes: list[LyricMorpheme] = []
-                for token in self.analyzer.analyze(unit):
+                for token in sorted(buckets[index], key=lambda item: item.start):
                     reading = token.reading_hiragana or token.surface
                     phonemes = phonemizer.text_to_phonemes(reading)
                     morphemes.append(LyricMorpheme(token=token, phonemes=phonemes))
@@ -153,11 +211,11 @@ class LyricParser:
 
             if words:
                 punctuation = ""
-                trailing = line.rstrip()
+                trailing = original.rstrip()
                 if trailing and trailing[-1] in "。、！？!?…":
                     punctuation = trailing[-1]
-                current.lines.append(
-                    LyricLine(words=words, punctuation=punctuation, section=current.name)
+                section.lines.append(
+                    LyricLine(words=words, punctuation=punctuation, section=section.name)
                 )
 
         return LyricDocument(sections=sections, analyzer_backend=self.analyzer.backend)
