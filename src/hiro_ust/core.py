@@ -1,103 +1,95 @@
-"""Public core API for the Hiro UST generator."""
+"""Public core API for Hiro UST."""
+from __future__ import annotations
+
+import random
 
 from .config import GeneratorConfig, HiroConfig
-from .constants import VOWEL_CHARS, CONSONANT_CHARS
 from .converter import HiroUSTGenerator, Phonemizer
 from .generator import USTWriter
-from .melody import MelodyBrain, SCALES
-from .voice.key_roots import KEY_ROOTS
+from .generator.ustx_writer import USTXWriter
+from .lyrics import LyricParser
+from .melody import SCALES
+from .melody.phrase_engine import PhraseMelodyEngine
 
 
 class HiroUSTProcessor:
-    """High-level facade for converting lyrics into UST/USTX output."""
+    """Single high-level pipeline: parse -> phonemize -> phrase melody -> serialize."""
 
     def __init__(self, config: GeneratorConfig | None = None):
         self.config = config or GeneratorConfig()
-        self._generator = HiroUSTGenerator()
-        self._phonemizer = Phonemizer()
-        self._melody_brain = None
+        self.generator = HiroUSTGenerator()
+        self.phonemizer = Phonemizer()
+        self.lyric_parser = LyricParser()
+        self.melody = PhraseMelodyEngine(seed=self.config.seed)
 
-    @property
-    def generator(self):
-        return self._generator
-
-    @property
-    def phonemizer(self):
-        return self._phonemizer
-
-    @property
-    def melody_brain(self):
-        if self._melody_brain is None:
-            self._melody_brain = MelodyBrain(seed=self.config.seed)
-        return self._melody_brain
-
-    def process_lyrics(
-        self,
-        lyrics: str,
-        project_name: str = "Hiro_Main",
-        output_format: str = "ust",
-    ) -> str:
-        """Convert lyrics to UST or USTX using the configured engine."""
+    def process_lyrics(self, lyrics: str, project_name: str = "Hiro_Main", output_format: str = "ustx") -> str:
         if output_format not in {"ust", "ustx"}:
-            raise ValueError(f"Invalid output format: {output_format}")
-        if not isinstance(lyrics, str) or not lyrics.strip():
-            raise ValueError("lyrics must be a non-empty string")
+            raise ValueError("output_format must be 'ust' or 'ustx'")
+        doc = self.lyric_parser.parse(lyrics, self.phonemizer)
 
-        try:
-            from .hiro_ust_dev import parse_song_structure, text_to_ustx
+        writer = USTWriter(project_name, self.config.tempo) if output_format == "ust" else USTXWriter(project_name, self.config.tempo)
+        rng = random.Random(self.config.seed + 17)
 
-            _, elements = parse_song_structure(
-                lyrics,
-                HiroConfig.PAUSE_LINE_UNIT * 2,
-                HiroConfig.PAUSE_SECTION_UNIT * 2,
-                on_warning=lambda msg: __import__("logging").getLogger(__name__).warning(msg),
-                phonemizer=self.phonemizer,
-            )
+        for section_index, section in enumerate(doc.sections):
+            if section_index:
+                writer.add_rest(self.config.base_length * 2)
 
-            if output_format == "ustx":
-                return text_to_ustx(
-                    elements,
-                    project_name,
-                    self.config.tempo,
-                    self.config.base_length,
-                    self.config.effective_root_key,
-                    self.config.scale,
-                    self.config.intone_level,
-                    self.config.length_var,
-                    self.config.stretch_prob,
-                    self.melody_brain,
-                )
+            for line_index, line in enumerate(section.lines):
+                if line_index or section_index:
+                    writer.add_rest(self.config.base_length)
 
-            writer = USTWriter(project_name=project_name, tempo=self.config.tempo)
-            root_key = self.config.effective_root_key
-            for element in elements:
-                if element.startswith("PAUSE_WORD:"):
-                    writer.add_rest(int(element.split(":", 1)[1]))
-                elif element.startswith("PAUSE_LINE:"):
-                    writer.add_rest(HiroConfig.PAUSE_LINE_UNIT)
-                elif element == "っ":
-                    writer.add_small_tsu(root_key)
-                else:
-                    writer.add_note(
-                        length=HiroConfig.MIN_NOTE_LEN,
-                        lyric=self.generator.romaji_to_hiragana(element),
-                        note_num=root_key,
-                        pre_utter=self.config.pre_utterance,
-                        voice_overlap=self.config.voice_overlap,
-                        intensity=self.config.intensity_base,
-                        envelope=HiroConfig.DEFAULT_ENVELOPE,
+                for word_index, word in enumerate(line.words):
+                    if word_index:
+                        writer.add_rest(max(HiroConfig.MIN_NOTE_LEN, self.config.base_length // 2))
+
+                    phonemes = [p for p in word.phonemes if p not in "。、！？,，…"]
+                    if not phonemes:
+                        continue
+
+                    low = max(21, self.config.effective_root_key - 18)
+                    high = min(108, self.config.effective_root_key + 18)
+                    plan_len = max(2, len(phonemes))
+                    register = self.config.effective_root_key + rng.randint(-4, 4)
+                    plan = self.melody.plan_phrase(plan_len, register)
+                    pitches = self.melody.render_phrase(
+                        plan,
+                        root=self.config.effective_root_key,
+                        scale=SCALES[self.config.scale],
+                        low=low,
+                        high=high,
                     )
-            return writer.finalize()
-        except Exception as exc:
-            raise RuntimeError(f"Lyrics processing failed: {exc}") from exc
+
+                    for phoneme, pitch in zip(phonemes, pitches):
+                        length = self._note_length(phoneme, rng)
+                        if phoneme == "っ":
+                            writer.add_small_tsu(self.config.effective_root_key, length=min(60, length))
+                        else:
+                            writer.add_note(
+                                length=length,
+                                lyric=self.generator.romaji_to_hiragana(phoneme),
+                                note_num=pitch,
+                                pre_utter=self.config.pre_utterance,
+                                voice_overlap=self.config.voice_overlap,
+                                intensity=self.config.intensity_base,
+                                envelope=self.config.envelope,
+                            )
+        return writer.finalize()
+
+    def _note_length(self, phoneme: str, rng: random.Random) -> int:
+        if phoneme == "っ":
+            return 60
+        char = phoneme[-1:] if phoneme else ""
+        factor = 1.0 if char in "aeiou" else 0.65
+        factor *= rng.uniform(1.0 - self.config.length_var * 0.35, 1.0 + self.config.length_var * 0.2)
+        return max(HiroConfig.MIN_NOTE_LEN, min(HiroConfig.MAX_NOTE_LEN, int(self.config.base_length * factor)))
 
     def get_supported_scales(self) -> list[str]:
-        return list(SCALES.keys())
+        return list(SCALES)
 
     def get_supported_envelopes(self) -> list[str]:
         try:
             from .voice.presets import ENVELOPE_PRESETS
-            return list(ENVELOPE_PRESETS.keys())
+            return list(ENVELOPE_PRESETS)
         except ImportError:
             return []
 
