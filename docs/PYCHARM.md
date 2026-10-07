@@ -35,7 +35,7 @@ Then click **Run**.
 This is equivalent to:
 
 ```bash
-python -m hiro_ust
+python run.py
 ```
 
 ## Alternative
@@ -48,11 +48,11 @@ Do not use these as normal application entry points:
 
 ```text
 src/hiro_ust/core.py
-src/hiro_ust/hiro_ust_dev.py
+src/hiro_ust/ui/main_window.py.py
 src/hiro_ust/cli.py
 ```
 
-`core.py` is the programmatic API. `cli.py` is the launcher implementation. `hiro_ust_dev.py` is legacy/internal runtime code that is still being migrated out of the package.
+`core.py` is the programmatic API. `cli.py` is the launcher implementation. `ui/main_window.py.py` is PySide6 application shell.
 
 ## Building the EXE from PyCharm
 
