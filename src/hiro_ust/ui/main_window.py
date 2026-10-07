@@ -11,6 +11,7 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -123,8 +124,8 @@ class HiroMainWindow(QMainWindow):
 
         self.notes_table = QTableWidget(0, 5)
         self.notes_table.setHorizontalHeaderLabels(["#", "Lyric", "MIDI", "Length", "Position"])
-        self.notes_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.notes_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.notes_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.notes_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.notes_table.horizontalHeader().setStretchLastSection(True)
         analysis_panel.layout().addWidget(self.notes_table, 1)
 
