@@ -1,28 +1,23 @@
-"""Japanese tokenization and reading analysis.
-
-SudachiPy is used when available. The analyzer deliberately returns a small,
-stable token model so the rest of Hiro does not depend on a specific NLP
-library.
-"""
+"""Japanese linguistic analysis backed by vendored Kuroshiro/Kuromoji."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
+import subprocess
 import unicodedata
 
-KANJI_RANGES = (
-    ("\u3400", "\u4dbf"),
-    ("\u4e00", "\u9fff"),
-)
+KANJI_RANGES = (("\u3400", "\u4dbf"), ("\u4e00", "\u9fff"))
 
 
 def contains_kanji(text: str) -> bool:
-    return any(any(start <= char <= end for start, end in KANJI_RANGES) for char in text)
+    return any(any(a <= ch <= b for a, b in KANJI_RANGES) for ch in text)
 
 
 def _is_kana(text: str) -> bool:
     return bool(text) and all(
-        "\u3040" <= char <= "\u309f" or "\u30a0" <= char <= "\u30ff" or char == "ー"
-        for char in text
+        "\u3040" <= ch <= "\u309f" or "\u30a0" <= ch <= "\u30ff" or ch == "ー"
+        for ch in text
     )
 
 
@@ -42,95 +37,111 @@ class AnalyzerToken:
 
     @property
     def reading_hiragana(self) -> str:
+        value = self.reading or self.surface
         return "".join(
-            chr(ord(char) - 0x60) if "\u30a1" <= char <= "\u30f6" else char
-            for char in self.reading
+            chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch
+            for ch in value
         )
 
 
 class JapaneseAnalyzer:
-    """Small adapter around SudachiPy with a deterministic fallback."""
+    """Run the vendored Kuromoji analyzer through a tiny Node bridge."""
 
-    def __init__(self, split_mode: str = "C"):
-        self.split_mode = split_mode.upper()
-        self._tokenizer = None
-        self.backend = "fallback"
-        try:
-            from sudachipy import Dictionary, SplitMode
-
-            mode_map = {"A": SplitMode.A, "B": SplitMode.B, "C": SplitMode.C}
-            self._tokenizer = Dictionary(dict="small").create(mode_map[self.split_mode])
-            self.backend = "sudachi"
-        except Exception:
-            self._tokenizer = None
+    def __init__(self, node_executable: str = "node"):
+        self.node_executable = node_executable
+        self.bridge = Path(__file__).resolve().parents[3] / "vendor" / "kuroshiro_bridge.js"
+        self.backend = "kuroshiro-kuromoji"
+        self._available: bool | None = None
 
     @property
     def available(self) -> bool:
-        return self._tokenizer is not None
+        if self._available is None:
+            if not self.bridge.exists():
+                self._available = False
+            else:
+                try:
+                    p = subprocess.run(
+                        [self.node_executable, str(self.bridge)],
+                        input=json.dumps(""),
+                        text=True,
+                        capture_output=True,
+                        timeout=20,
+                        check=False,
+                    )
+                    self._available = p.returncode == 0
+                except (OSError, subprocess.SubprocessError):
+                    self._available = False
+        return self._available
 
     def analyze(self, text: str) -> list[AnalyzerToken]:
         if not text:
             return []
-        if self._tokenizer is None:
+        if not self.available:
+            return self._fallback(text)
+
+        try:
+            p = subprocess.run(
+                [self.node_executable, str(self.bridge)],
+                input=json.dumps(text, ensure_ascii=False),
+                text=True,
+                encoding="utf-8",
+                capture_output=True,
+                timeout=max(20, min(120, 20 + len(text))),
+                check=False,
+            )
+            if p.returncode != 0:
+                return self._fallback(text)
+            raw = json.loads(p.stdout or "[]")
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
             return self._fallback(text)
 
         result: list[AnalyzerToken] = []
-        cursor = 0
-        for morpheme in self._tokenizer.tokenize(text):
-            surface = morpheme.surface()
-            reading = morpheme.reading_form() or surface
-            pos = morpheme.part_of_speech()
-            punctuation = bool(pos and pos[0] in {"補助記号"})
-            start = text.find(surface, cursor)
-            if start < 0:
-                start = cursor
-            end = start + len(surface)
+        for token in raw:
+            surface = str(token.get("surface", ""))
+            if not surface:
+                continue
+            start = max(0, int(token.get("word_position", 1)) - 1)
+            end = min(len(text), start + len(surface))
+            pos = str(token.get("pos", ""))
             result.append(
                 AnalyzerToken(
                     surface=surface,
-                    reading=reading,
-                    lemma=morpheme.dictionary_form() or surface,
-                    normalized=morpheme.normalized_form() or surface,
-                    pos=pos[0] if pos else "",
-                    pos_detail="/".join(pos[1:4]) if pos else "",
+                    reading=str(token.get("reading", "")) or surface,
+                    lemma=str(token.get("lemma", "")) or surface,
+                    normalized=surface,
+                    pos=pos,
+                    pos_detail=str(token.get("pos_detail", "")),
                     start=start,
                     end=end,
                     kanji=contains_kanji(surface),
                     kana=_is_kana(surface),
-                    punctuation=punctuation,
+                    punctuation=pos in {"記号", "補助記号"},
                 )
             )
-            cursor = end
         return result
 
-    def _fallback(self, text: str) -> list[AnalyzerToken]:
-        """Keep the application usable when the optional NLP stack is absent."""
+    @staticmethod
+    def _fallback(text: str) -> list[AnalyzerToken]:
         result: list[AnalyzerToken] = []
         cursor = 0
         for part in text.split():
             start = text.find(part, cursor)
             start = cursor if start < 0 else start
             end = start + len(part)
-            if all(unicodedata.category(c).startswith("P") for c in part):
-                pos = "補助記号"
-            elif _is_kana(part):
-                pos = "記号" if all(unicodedata.category(c).startswith("S") for c in part) else "名詞"
-            else:
-                pos = "名詞"
-            reading = part if _is_kana(part) else ""
+            punctuation = all(unicodedata.category(ch).startswith("P") for ch in part)
             result.append(
                 AnalyzerToken(
                     surface=part,
-                    reading=reading,
+                    reading=part if _is_kana(part) else "",
                     lemma=part,
                     normalized=part,
-                    pos=pos,
+                    pos="記号" if punctuation else "名詞",
                     pos_detail="fallback",
                     start=start,
                     end=end,
                     kanji=contains_kanji(part),
                     kana=_is_kana(part),
-                    punctuation=pos == "補助記号",
+                    punctuation=punctuation,
                 )
             )
             cursor = end
