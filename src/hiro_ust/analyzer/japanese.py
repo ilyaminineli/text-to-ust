@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import subprocess
+import sys
 import unicodedata
 
 KANJI_RANGES = (("\u3400", "\u4dbf"), ("\u4e00", "\u9fff"))
@@ -49,7 +50,8 @@ class JapaneseAnalyzer:
 
     def __init__(self, node_executable: str = "node"):
         self.node_executable = node_executable
-        self.bridge = Path(__file__).resolve().parents[3] / "vendor" / "kuroshiro_bridge.js"
+        bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[3]))
+        self.bridge = bundle_root / "vendor" / "kuroshiro_bridge.js"
         self.backend = "kuroshiro-kuromoji"
         self._available: bool | None = None
 
