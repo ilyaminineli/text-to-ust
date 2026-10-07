@@ -138,7 +138,7 @@ For example, a unit containing kanji can be represented as:
 数える → かぞえる → verb → ka zo e ru
 ```
 
-The repository's vendored Kuroshiro/Kuromoji analyzer provides the Japanese morphological analysis used by the application. The editor can preview analyzed surface forms, readings, POS tags, kanji flags, and generated phonemes before melody generation. The desktop bridge uses the repository's `vendor/kuromoji/dict` directly.
+The repository's vendored Kuroshiro/Kuromoji analyzer provides the Japanese morphological analysis used by the application. The editor can preview analyzed surface forms, normalized readings, POS tags, kanji flags, and generated phonemes before melody generation. The analyzer works on complete lyric lines and the result is then mapped back to the lyricist's whitespace groups. The desktop bridge uses the repository's `vendor/kuromoji/dict` directly.
 
 Examples:
 
@@ -172,7 +172,7 @@ After generation, the PySide6 editor exposes a lightweight piano-roll preview in
 
 The preview also includes a tiny synthesized audition path. It renders the current melody into a temporary WAV and plays it through Qt Multimedia when available, with a Windows fallback. This is intentionally a diagnostic sound rather than a replacement for the UTAU render.
 
-Notes can be selected as a contiguous range directly in the piano roll. The selection is surfaced as a `(start_tick, end_tick)` signal, so the same UI model can later become the input to **range-based regeneration**: regenerate only the selected phrase/region while preserving the rest of the arrangement.
+Notes can be selected individually with Ctrl, as ranges with Shift, or by dragging a marquee over the piano roll. Playback can target either the full melody or the current selection, and a Stop control cancels the preview. The selection is also surfaced as note indices plus a `(start_tick, end_tick)` range, so the same UI model can later become the input to **range-based regeneration**: regenerate only the selected phrase/region while preserving the rest of the arrangement.
 
 ### Scales
 
