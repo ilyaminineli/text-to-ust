@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import unicodedata
@@ -58,70 +59,68 @@ class JapaneseAnalyzer:
     @property
     def available(self) -> bool:
         if self._available is None:
-            if not self.bridge.exists():
-                self._available = False
-            else:
-                try:
-                    p = subprocess.run(
-                        [self.node_executable, str(self.bridge)],
-                        input=json.dumps(""),
-                        text=True,
-                        capture_output=True,
-                        timeout=20,
-                        check=False,
-                    )
-                    self._available = p.returncode == 0
-                except (OSError, subprocess.SubprocessError):
-                    self._available = False
+            self._available = self.bridge.exists() and shutil.which(self.node_executable) is not None
         return self._available
 
     def analyze(self, text: str) -> list[AnalyzerToken]:
-        if not text:
+        batches = self.analyze_many([text])
+        return batches[0] if batches else []
+
+    def analyze_many(self, texts: list[str]) -> list[list[AnalyzerToken]]:
+        if not texts:
             return []
         if not self.available:
-            return self._fallback(text)
+            return [self._fallback(text) for text in texts]
 
         try:
             p = subprocess.run(
                 [self.node_executable, str(self.bridge)],
-                input=json.dumps(text, ensure_ascii=False),
+                input=json.dumps(texts, ensure_ascii=False),
                 text=True,
                 encoding="utf-8",
                 capture_output=True,
-                timeout=max(20, min(120, 20 + len(text))),
+                timeout=max(30, min(180, 25 + sum(len(text) for text in texts) // 2)),
                 check=False,
             )
             if p.returncode != 0:
-                return self._fallback(text)
-            raw = json.loads(p.stdout or "[]")
+                return [self._fallback(text) for text in texts]
+            raw_batches = json.loads(p.stdout or "[]")
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-            return self._fallback(text)
+            return [self._fallback(text) for text in texts]
 
-        result: list[AnalyzerToken] = []
-        for token in raw:
-            surface = str(token.get("surface", ""))
-            if not surface:
-                continue
-            start = max(0, int(token.get("word_position", 1)) - 1)
-            end = min(len(text), start + len(surface))
-            pos = str(token.get("pos", ""))
-            result.append(
-                AnalyzerToken(
-                    surface=surface,
-                    reading=str(token.get("reading", "")) or surface,
-                    lemma=str(token.get("lemma", "")) or surface,
-                    normalized=surface,
-                    pos=pos,
-                    pos_detail=str(token.get("pos_detail", "")),
-                    start=start,
-                    end=end,
-                    kanji=contains_kanji(surface),
-                    kana=_is_kana(surface),
-                    punctuation=pos in {"記号", "補助記号"},
+        if not isinstance(raw_batches, list):
+            return [self._fallback(text) for text in texts]
+
+        result: list[list[AnalyzerToken]] = []
+        for text, raw_tokens in zip(texts, raw_batches):
+            tokens: list[AnalyzerToken] = []
+            for token in raw_tokens:
+                surface = str(token.get("surface", ""))
+                if not surface:
+                    continue
+                start = max(0, int(token.get("word_position", 1)) - 1)
+                end = min(len(text), start + len(surface))
+                pos = str(token.get("pos", ""))
+                tokens.append(
+                    AnalyzerToken(
+                        surface=surface,
+                        reading=str(token.get("reading", "")) or surface,
+                        lemma=str(token.get("lemma", "")) or surface,
+                        normalized=surface,
+                        pos=pos,
+                        pos_detail=str(token.get("pos_detail", "")),
+                        start=start,
+                        end=end,
+                        kanji=contains_kanji(surface),
+                        kana=_is_kana(surface),
+                        punctuation=pos in {"記号", "補助記号"},
+                    )
                 )
-            )
-        return result
+            result.append(tokens)
 
+        while len(result) < len(texts):
+            result.append(self._fallback(texts[len(result)]))
+        return result
     @staticmethod
     def _fallback(text: str) -> list[AnalyzerToken]:
         result: list[AnalyzerToken] = []
