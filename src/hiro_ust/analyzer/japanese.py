@@ -9,6 +9,7 @@ import subprocess
 import sys
 import unicodedata
 
+
 KANJI_RANGES = (("㐀", "䶿"), ("一", "鿿"), ("豈", "﫿"))
 
 
@@ -20,10 +21,12 @@ def normalize_reading(text: str) -> str:
     """Normalize Kuroshiro hiragana output for UTAU-style mora parsing."""
     if not text:
         return ""
+
     value = "".join(
         chr(ord(ch) - 0x60) if "ァ" <= ch <= "ヶ" else ch
         for ch in text
     )
+
     vowels = {
         **dict.fromkeys("あかがさざただなはばぱまゃやらわぁ", "あ"),
         **dict.fromkeys("いきぎしじちぢにひびぴみりぃ", "い"),
@@ -31,6 +34,7 @@ def normalize_reading(text: str) -> str:
         **dict.fromkeys("えけげせぜてでねへべぺめれぇ", "え"),
         **dict.fromkeys("おこごそぞとどのほぼぽもょよろをぉ", "お"),
     }
+
     result: list[str] = []
     last_vowel = ""
     for char in value:
@@ -78,20 +82,31 @@ class JapaneseAnalysis:
     tokens: tuple[AnalyzerToken, ...]
 
 
+class JapaneseAnalysisError(RuntimeError):
+    """Raised when the Japanese reading backend cannot produce a safe reading."""
+
+
 class JapaneseAnalyzer:
-    """Use Kuroshiro for the canonical reading and Kuromoji for token metadata."""
+    """Use vendored Kuroshiro/Kuromoji for the canonical Japanese reading."""
 
     def __init__(self, node_executable: str = "node") -> None:
         self.node_executable = node_executable
-        bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[3]))
+        bundle_root = Path(
+            getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[3])
+        )
         self.bridge = bundle_root / "vendor" / "kuroshiro_bridge.js"
+        self.dict_path = bundle_root / "vendor" / "kuromoji" / "dict"
         self.backend = "kuroshiro-kuromoji"
         self._available: bool | None = None
 
     @property
     def available(self) -> bool:
         if self._available is None:
-            self._available = self.bridge.exists() and shutil.which(self.node_executable) is not None
+            self._available = (
+                self.bridge.exists()
+                and self.dict_path.exists()
+                and shutil.which(self.node_executable) is not None
+            )
         return self._available
 
     def analyze(self, text: str) -> list[AnalyzerToken]:
@@ -106,7 +121,24 @@ class JapaneseAnalyzer:
     def analyze_detailed_many(self, texts: list[str]) -> list[JapaneseAnalysis]:
         if not texts:
             return []
+
         if not self.available:
+            missing = []
+            if not self.bridge.exists():
+                missing.append(f"bridge not found: {self.bridge}")
+            if not self.dict_path.exists():
+                missing.append(f"Kuromoji dictionary not found: {self.dict_path}")
+            if shutil.which(self.node_executable) is None:
+                missing.append(f"Node executable not found: {self.node_executable}")
+            detail = "; ".join(missing) or "unknown backend availability error"
+
+            # Never allow Kanji to silently flow into the phonemizer.
+            if any(contains_kanji(text) for text in texts):
+                raise JapaneseAnalysisError(
+                    "Kuroshiro/Kuromoji is unavailable, so Kanji cannot be "
+                    f"safely converted to Hiragana: {detail}"
+                )
+
             return [self._fallback_analysis(text) for text in texts]
 
         try:
@@ -116,37 +148,74 @@ class JapaneseAnalyzer:
                 text=True,
                 encoding="utf-8",
                 capture_output=True,
-                timeout=max(30, min(180, 25 + sum(len(text) for text in texts) // 2)),
+                timeout=max(
+                    30,
+                    min(180, 25 + sum(len(text) for text in texts) // 2),
+                ),
                 check=False,
             )
-            if process.returncode != 0:
-                return [self._fallback_analysis(text) for text in texts]
-            raw_batches = json.loads(process.stdout or "[]")
-        except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-            return [self._fallback_analysis(text) for text in texts]
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise JapaneseAnalysisError(
+                f"Failed to execute Kuroshiro bridge: {exc}"
+            ) from exc
 
-        if not isinstance(raw_batches, list):
-            return [self._fallback_analysis(text) for text in texts]
+        if process.returncode != 0:
+            stderr = (process.stderr or "").strip()
+            raise JapaneseAnalysisError(
+                "Kuroshiro/Kuromoji bridge failed "
+                f"(exit code {process.returncode}).\n"
+                f"{stderr or 'Node returned no diagnostic output.'}"
+            )
+
+        try:
+            raw_batches = json.loads(process.stdout or "[]")
+        except json.JSONDecodeError as exc:
+            stdout_preview = (process.stdout or "").strip()[:1000]
+            raise JapaneseAnalysisError(
+                "Kuroshiro bridge returned invalid JSON.\n"
+                f"Output: {stdout_preview!r}"
+            ) from exc
+
+        if not isinstance(raw_batches, list) or len(raw_batches) != len(texts):
+            raise JapaneseAnalysisError(
+                "Kuroshiro bridge returned an unexpected number of analyses: "
+                f"expected {len(texts)}, got "
+                f"{len(raw_batches) if isinstance(raw_batches, list) else 'non-list'}"
+            )
 
         result: list[JapaneseAnalysis] = []
+
         for text, payload in zip(texts, raw_batches):
             if not isinstance(payload, dict):
-                result.append(self._fallback_analysis(text))
-                continue
+                raise JapaneseAnalysisError(
+                    f"Kuroshiro returned an invalid payload for {text!r}: {payload!r}"
+                )
 
             raw_tokens = payload.get("tokens", [])
             tokens: list[AnalyzerToken] = []
             cursor = 0
-            for raw in raw_tokens if isinstance(raw_tokens, list) else []:
+
+            if not isinstance(raw_tokens, list):
+                raise JapaneseAnalysisError(
+                    f"Kuromoji token output is not a list for {text!r}"
+                )
+
+            for raw in raw_tokens:
+                if not isinstance(raw, dict):
+                    continue
+
                 surface = str(raw.get("surface", ""))
                 if not surface:
                     continue
+
                 position = text.find(surface, cursor)
                 if position < 0:
                     position = text.find(surface)
+
                 start = max(0, position if position >= 0 else cursor)
                 end = min(len(text), start + len(surface))
                 cursor = end
+
                 pos = str(raw.get("pos", ""))
                 tokens.append(
                     AnalyzerToken(
@@ -164,10 +233,23 @@ class JapaneseAnalyzer:
                     )
                 )
 
-            # IMPORTANT: this string is produced by Kuroshiro itself.
-            # It is the canonical singing reading and must not be rebuilt
-            # from Kuromoji token readings.
-            reading = normalize_reading(str(payload.get("reading", "")) or text)
+            # This MUST come from Kuroshiro normal-mode conversion.
+            raw_reading = str(payload.get("reading", ""))
+            if not raw_reading:
+                raise JapaneseAnalysisError(
+                    f"Kuroshiro returned an empty reading for {text!r}"
+                )
+
+            if contains_kanji(raw_reading):
+                raise JapaneseAnalysisError(
+                    "Kuroshiro returned Kanji instead of a kana reading.\n"
+                    f"Input:   {text!r}\n"
+                    f"Reading: {raw_reading!r}\n"
+                    "The Japanese converter must not receive this output."
+                )
+
+            reading = normalize_reading(raw_reading)
+
             result.append(
                 JapaneseAnalysis(
                     text=text,
@@ -178,20 +260,22 @@ class JapaneseAnalyzer:
                 )
             )
 
-        while len(result) < len(texts):
-            result.append(self._fallback_analysis(texts[len(result)]))
         return result
 
     @staticmethod
     def _fallback_analysis(text: str) -> JapaneseAnalysis:
-        punctuation = all(unicodedata.category(ch).startswith("P") for ch in text) if text else False
+        punctuation = (
+            all(unicodedata.category(ch).startswith("P") for ch in text)
+            if text
+            else False
+        )
         token = AnalyzerToken(
             surface=text,
             reading=text if _is_kana(text) else "",
             lemma=text,
             normalized=text,
             pos="記号" if punctuation else "",
-            pos_detail="fallback",
+            pos_detail="fallback-kana-only",
             start=0,
             end=len(text),
             kanji=contains_kanji(text),
@@ -210,6 +294,7 @@ class JapaneseAnalyzer:
 __all__ = [
     "AnalyzerToken",
     "JapaneseAnalysis",
+    "JapaneseAnalysisError",
     "JapaneseAnalyzer",
     "contains_kanji",
     "normalize_reading",

@@ -1,0 +1,10 @@
+{
+  "name": "text-to-ust-kuroshiro-runtime",
+  "private": true,
+  "description": "Node runtime dependencies for the vendored Kuroshiro/Kuromoji bridge",
+  "dependencies": {
+    "kuroshiro": "1.2.1",
+    "kuroshiro-analyzer-kuromoji": "1.1.0",
+    "kuromoji": "0.1.2"
+  }
+}

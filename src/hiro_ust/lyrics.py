@@ -3,7 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .analyzer.japanese import AnalyzerToken, JapaneseAnalyzer
+from .analyzer.japanese import (
+    AnalyzerToken,
+    JapaneseAnalyzer,
+    JapaneseAnalysisError,
+    contains_kanji,
+)
 
 
 @dataclass
@@ -40,7 +45,9 @@ class LyricWord:
 
     @property
     def reading(self) -> str:
-        return self.reading_override or "".join(m.reading for m in self.morphemes)
+        return self.reading_override or "".join(
+            m.reading for m in self.morphemes
+        )
 
     @property
     def phonemes(self) -> list[str]:
@@ -88,7 +95,11 @@ class LyricDocument:
 
     @property
     def word_count(self) -> int:
-        return sum(len(line.words) for section in self.sections for line in section.lines)
+        return sum(
+            len(line.words)
+            for section in self.sections
+            for line in section.lines
+        )
 
     @property
     def morpheme_count(self) -> int:
@@ -132,6 +143,7 @@ class LyricParser:
             line = raw.strip()
             if not line:
                 continue
+
             if line.startswith("[") and line.endswith("]") and len(line) > 2:
                 current = LyricSection(line[1:-1].strip())
                 sections.append(current)
@@ -140,12 +152,20 @@ class LyricParser:
             for unit in self._split_units(line):
                 pending.append((current, unit, line))
 
-        analyses = self.analyzer.analyze_detailed_many([item[1] for item in pending])
+        analyses = self.analyzer.analyze_detailed_many(
+            [item[1] for item in pending]
+        )
 
         for (section, unit, source_line), analysis in zip(pending, analyses):
-            # Kuroshiro normal-mode reading is the one source of truth for
-            # singing. Kuromoji token metadata is displayed separately.
             reading = analysis.reading or unit
+
+            # Absolute safety check: Kanji must never reach the UTAU phonemizer.
+            if contains_kanji(reading):
+                raise JapaneseAnalysisError(
+                    "Japanese reading still contains Kanji before phonemization: "
+                    f"{reading!r} (source: {unit!r})"
+                )
+
             phonemes = phonemizer.text_to_phonemes(reading)
 
             morphemes: list[LyricMorpheme] = []
@@ -159,8 +179,6 @@ class LyricParser:
                         )
                     )
 
-            # We intentionally keep the entire lyric unit as one musical word.
-            # Its reading/phonemes come from Kuroshiro, not raw Kanji text.
             synthetic = AnalyzerToken(
                 surface=unit,
                 reading=reading,
@@ -174,13 +192,21 @@ class LyricParser:
                 kana=not contains_kanji(unit),
                 punctuation=False,
             )
+
             word = LyricWord(
                 text=unit,
-                morphemes=[LyricMorpheme(token=synthetic, phonemes=phonemes)],
+                morphemes=[
+                    LyricMorpheme(token=synthetic, phonemes=phonemes)
+                ],
                 reading_override=reading,
             )
 
-            punctuation = source_line.rstrip()[-1:] if source_line.rstrip().endswith(tuple("。、！？!?…")) else ""
+            punctuation = (
+                source_line.rstrip()[-1:]
+                if source_line.rstrip().endswith(tuple("。、！？!?…"))
+                else ""
+            )
+
             section.lines.append(
                 LyricLine(
                     words=[word],
