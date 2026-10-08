@@ -110,7 +110,7 @@ class LyricDocument:
 
 
 class LyricParser:
-    """Preserve lyric grouping, but always derive singing text from furigana."""
+    """Preserve user grouping while using Kuroshiro's sentence reading."""
 
     def __init__(self, analyzer: JapaneseAnalyzer | None = None):
         self.analyzer = analyzer or JapaneseAnalyzer()
@@ -126,8 +126,8 @@ class LyricParser:
         sections: list[LyricSection] = []
         current = LyricSection("Main")
         sections.append(current)
-
         pending: list[tuple[LyricSection, str, str]] = []
+
         for raw in text.splitlines():
             line = raw.strip()
             if not line:
@@ -136,48 +136,63 @@ class LyricParser:
                 current = LyricSection(line[1:-1].strip())
                 sections.append(current)
                 continue
+
             for unit in self._split_units(line):
                 pending.append((current, unit, line))
 
         analyses = self.analyzer.analyze_detailed_many([item[1] for item in pending])
 
         for (section, unit, source_line), analysis in zip(pending, analyses):
-            # Kuroshiro is authoritative for singing reading. Kuromoji tokens
-            # remain metadata where they are trustworthy, but never override a
-            # Kanji reading with raw surface text.
+            # Kuroshiro normal-mode reading is the one source of truth for
+            # singing. Kuromoji token metadata is displayed separately.
             reading = analysis.reading or unit
             phonemes = phonemizer.text_to_phonemes(reading)
-            morphemes: list[LyricMorpheme] = []
 
+            morphemes: list[LyricMorpheme] = []
             for token in analysis.tokens:
                 token_reading = token.reading_hiragana
-                if not token_reading or token_reading == token.surface and any(ch > "\u309f" for ch in token.surface):
-                    continue
-                morphemes.append(
-                    LyricMorpheme(token=token, phonemes=phonemizer.text_to_phonemes(token_reading))
-                )
+                if token_reading and token_reading != token.surface:
+                    morphemes.append(
+                        LyricMorpheme(
+                            token=token,
+                            phonemes=phonemizer.text_to_phonemes(token_reading),
+                        )
+                    )
 
-            if not morphemes:
-                synthetic = AnalyzerToken(
-                    surface=unit,
-                    reading=reading,
-                    lemma=unit,
-                    normalized=unit,
-                    pos="",
-                    pos_detail="kuroshiro-reading",
-                    start=0,
-                    end=len(unit),
-                    kanji=any("\u3400" <= ch <= "\u9fff" for ch in unit),
-                    kana=not any("\u3400" <= ch <= "\u9fff" for ch in unit),
-                    punctuation=False,
-                )
-                morphemes = [LyricMorpheme(token=synthetic, phonemes=phonemes)]
+            # We intentionally keep the entire lyric unit as one musical word.
+            # Its reading/phonemes come from Kuroshiro, not raw Kanji text.
+            synthetic = AnalyzerToken(
+                surface=unit,
+                reading=reading,
+                lemma=unit,
+                normalized=unit,
+                pos="",
+                pos_detail="kuroshiro-reading",
+                start=0,
+                end=len(unit),
+                kanji=contains_kanji(unit),
+                kana=not contains_kanji(unit),
+                punctuation=False,
+            )
+            word = LyricWord(
+                text=unit,
+                morphemes=[LyricMorpheme(token=synthetic, phonemes=phonemes)],
+                reading_override=reading,
+            )
 
-            current_word = LyricWord(text=unit, morphemes=morphemes, reading_override=reading)
             punctuation = source_line.rstrip()[-1:] if source_line.rstrip().endswith(tuple("。、！？!?…")) else ""
-            current.lines.append(LyricLine(words=[current_word], punctuation=punctuation, section=section.name))
+            section.lines.append(
+                LyricLine(
+                    words=[word],
+                    punctuation=punctuation,
+                    section=section.name,
+                )
+            )
 
-        return LyricDocument(sections=sections, analyzer_backend=self.analyzer.backend)
+        return LyricDocument(
+            sections=sections,
+            analyzer_backend=self.analyzer.backend,
+        )
 
 
 __all__ = [
