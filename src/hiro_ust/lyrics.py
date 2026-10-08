@@ -51,9 +51,9 @@ class LyricWord:
 
     @property
     def phonemes(self) -> list[str]:
+        # reading_override affects only the displayed/serialized reading.
+        # It must NOT erase phonemes already produced from that reading.
         result: list[str] = []
-        if self.reading_override:
-            return result
         for morpheme in self.morphemes:
             result.extend(morpheme.phonemes)
         return result
@@ -159,7 +159,6 @@ class LyricParser:
         for (section, unit, source_line), analysis in zip(pending, analyses):
             reading = analysis.reading or unit
 
-            # Absolute safety check: Kanji must never reach the UTAU phonemizer.
             if contains_kanji(reading):
                 raise JapaneseAnalysisError(
                     "Japanese reading still contains Kanji before phonemization: "
@@ -167,17 +166,6 @@ class LyricParser:
                 )
 
             phonemes = phonemizer.text_to_phonemes(reading)
-
-            morphemes: list[LyricMorpheme] = []
-            for token in analysis.tokens:
-                token_reading = token.reading_hiragana
-                if token_reading and token_reading != token.surface:
-                    morphemes.append(
-                        LyricMorpheme(
-                            token=token,
-                            phonemes=phonemizer.text_to_phonemes(token_reading),
-                        )
-                    )
 
             synthetic = AnalyzerToken(
                 surface=unit,
