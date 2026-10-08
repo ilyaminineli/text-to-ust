@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build the Hiro UST Generator Windows executable with PyInstaller."""
+
 from __future__ import annotations
 
 import shutil
@@ -21,7 +22,8 @@ def build_exe() -> int:
 
     cmd = [
         sys.executable,
-        "-m", "PyInstaller",
+        "-m",
+        "PyInstaller",
         "--name=Hiro_UST_Generator",
         "--onefile",
         "--windowed",
