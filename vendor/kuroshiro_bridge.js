@@ -26,7 +26,12 @@ async function main() {
 
   const result = [];
   for (const text of texts) {
+    // Kuroshiro is the canonical Japanese -> reading converter.
+    // "normal" gives the plain Hiragana sentence; "spaced" exposes
+    // morphological boundaries; "furigana" preserves the source/reading
+    // relationship for the editor/debugger.
     const reading = await kuroshiro.convert(text, { to: "hiragana", mode: "normal" });
+    const spaced = await kuroshiro.convert(text, { to: "hiragana", mode: "spaced" });
     const furigana = await kuroshiro.convert(text, { to: "hiragana", mode: "furigana" });
     const raw = await analyzer.parse(text);
     const tokens = raw.map((token) => ({
@@ -42,7 +47,13 @@ async function main() {
       ].filter(Boolean).join("/"),
       word_position: Number(token.word_position || 1)
     }));
-    result.push({ text, reading: String(reading || ""), furigana: String(furigana || ""), tokens });
+    result.push({
+      text,
+      reading: String(reading || ""),
+      spaced: String(spaced || ""),
+      furigana: String(furigana || ""),
+      tokens
+    });
   }
 
   process.stdout.write(JSON.stringify(result));
