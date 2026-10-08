@@ -5,6 +5,7 @@ Usage:
     python run.py --lyrics "きょうも..."
     python run.py --lyrics-file lyrics.txt --output song.ustx
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,7 +42,11 @@ def main() -> int:
     if bool(args.lyrics) == bool(args.lyrics_file):
         parser.error("provide exactly one of --lyrics or --lyrics-file")
 
-    lyrics = args.lyrics if args.lyrics is not None else args.lyrics_file.read_text(encoding="utf-8")
+    lyrics = (
+        args.lyrics
+        if args.lyrics is not None
+        else args.lyrics_file.read_text(encoding="utf-8")
+    )
     name = args.output.stem if args.output else "hiro_output"
     processor = HiroUSTProcessor(
         GeneratorConfig(
@@ -51,7 +56,9 @@ def main() -> int:
             seed=args.seed,
         )
     )
-    content = processor.process_lyrics(lyrics, project_name=name, output_format=args.format)
+    content = processor.process_lyrics(
+        lyrics, project_name=name, output_format=args.format
+    )
     output = args.output or Path(f"{name}.{args.format}")
     output.write_text(content, encoding="utf-8")
     print(output)
