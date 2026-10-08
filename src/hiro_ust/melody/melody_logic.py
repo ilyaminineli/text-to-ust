@@ -17,7 +17,6 @@ from ..constants import VOWEL_CHARS, CONSONANT_CHARS
 from .intone_utils import get_intone_settings
 from .scales import SCALES
 
-
 # Voice roots used by the GUI. The values describe a comfortable relative
 # melodic span around each voice's root, not a strict vocal range database.
 VOICE_RANGE_BY_ROOT = {
@@ -48,10 +47,12 @@ class NoteMarkov:
             counts[(state, stress)][target] += 1.0
         self.transitions = dict(counts)
 
-    def next_note(self, state: Sequence[float], stress: int, scale: Sequence[int]) -> int | None:
+    def next_note(
+        self, state: Sequence[float], stress: int, scale: Sequence[int]
+    ) -> int | None:
         if not self.transitions:
             return None
-        key = (tuple(int(round(n)) % 12 for n in state[-self.order:]), int(stress))
+        key = (tuple(int(round(n)) % 12 for n in state[-self.order :]), int(stress))
         probs = self.transitions.get(key)
         if probs is None:
             return None
@@ -70,7 +71,12 @@ class NoteMarkov:
 class MotifMemory:
     """Store interval patterns so motifs can recur in another register."""
 
-    def __init__(self, motif_length: int = 4, max_motifs: int = 8, rng: random.Random | None = None):
+    def __init__(
+        self,
+        motif_length: int = 4,
+        max_motifs: int = 8,
+        rng: random.Random | None = None,
+    ):
         self.motif_length = max(2, int(motif_length))
         self.max_motifs = max(1, int(max_motifs))
         self.stored_motifs: list[list[int]] = []
@@ -95,7 +101,9 @@ class MotifMemory:
     def debug_motifs(self) -> str:
         if not self.stored_motifs:
             return "No motifs stored"
-        return " | ".join(f"[{','.join(map(str, motif))}]" for motif in self.stored_motifs)
+        return " | ".join(
+            f"[{','.join(map(str, motif))}]" for motif in self.stored_motifs
+        )
 
 
 class MelodyBrain:
@@ -147,9 +155,11 @@ class MelodyBrain:
             return True
         return phoneme[-1].lower() in "aeiou"
 
-    def train_markov(self, phonemes: Sequence[str], notes: Sequence[float] | None = None) -> None:
+    def train_markov(
+        self, phonemes: Sequence[str], notes: Sequence[float] | None = None
+    ) -> None:
         notes = list(self.note_history[-32:] if notes is None else notes)
-        phonemes = list(phonemes)[-len(notes):]
+        phonemes = list(phonemes)[-len(notes) :]
         if len(notes) < 3 or len(phonemes) != len(notes):
             return
         stresses = [int(self._is_vowel(p)) for p in phonemes]
@@ -163,13 +173,22 @@ class MelodyBrain:
         elif pattern == "Atamadaka":
             self.pitch_drop_pos, self.is_high_pitch = 1, True
         elif pattern == "Nakadaka":
-            self.pitch_drop_pos, self.is_high_pitch = max(2, int(word_length) // 2), True
+            self.pitch_drop_pos, self.is_high_pitch = (
+                max(2, int(word_length) // 2),
+                True,
+            )
         elif pattern == "Odaka":
             self.pitch_drop_pos, self.is_high_pitch = 999, False
         else:
             self.pitch_drop_pos, self.is_high_pitch = 0, False
 
-    def _start_phrase(self, settings: dict, contour_bias: float, pitch_range_control: float, root_midi: int) -> None:
+    def _start_phrase(
+        self,
+        settings: dict,
+        contour_bias: float,
+        pitch_range_control: float,
+        root_midi: int,
+    ) -> None:
         self._voice_root = int(root_midi)
         base_range = VOICE_RANGE_BY_ROOT.get(int(root_midi), 14.0)
         control = max(0.4, min(1.7, float(pitch_range_control) / 70.0))
@@ -208,7 +227,9 @@ class MelodyBrain:
         register_shift = self.rng.uniform(-1.8, 1.8)
         if self._phrase_index > 0:
             register_shift += self.rng.choice([-2.0, -1.0, 0.0, 1.0, 2.0])
-        self._phrase_register = max(2.0, min(self._effective_range - 2.0, center + register_shift))
+        self._phrase_register = max(
+            2.0, min(self._effective_range - 2.0, center + register_shift)
+        )
         self._phrase_span = max(5.0, min(self._effective_range * 0.72, 12.0))
 
     def _contour_target(self, position: float) -> float:
@@ -228,7 +249,13 @@ class MelodyBrain:
             shape = 0.5 + 0.5 * math.sin(3.0 * math.pi * x)
         else:
             shape = math.sin(math.pi * x)
-        return max(0.0, min(self._effective_range, self._phrase_register + (shape - 0.5) * self._phrase_span))
+        return max(
+            0.0,
+            min(
+                self._effective_range,
+                self._phrase_register + (shape - 0.5) * self._phrase_span,
+            ),
+        )
 
     @staticmethod
     def _scale_candidates(scale: Sequence[int], maximum: float) -> list[int]:
@@ -236,7 +263,9 @@ class MelodyBrain:
         upper = max(1, int(math.floor(maximum)))
         return [offset for offset in range(upper + 1) if offset % 12 in pcs]
 
-    def _candidate_pool(self, scale: Sequence[int], settings: dict, target: float, is_vowel: bool) -> list[int]:
+    def _candidate_pool(
+        self, scale: Sequence[int], settings: dict, target: float, is_vowel: bool
+    ) -> list[int]:
         scale_candidates = self._scale_candidates(scale, self._effective_range)
         if not scale_candidates:
             return [int(round(self.last_note))]
@@ -245,7 +274,9 @@ class MelodyBrain:
         # Wild-style leaps because of an out-of-range contour target.
         normal_leap = int(settings["leap"])
         expanded_leap = int(settings.get("large_leap", 0))
-        allow_large = expanded_leap > normal_leap and self.rng.random() < float(settings.get("large_leap_prob", 0.0))
+        allow_large = expanded_leap > normal_leap and self.rng.random() < float(
+            settings.get("large_leap_prob", 0.0)
+        )
         allowed_leap = expanded_leap if allow_large else normal_leap
 
         local = [n for n in scale_candidates if abs(n - self.last_note) <= allowed_leap]
@@ -270,10 +301,20 @@ class MelodyBrain:
 
         return sorted(set(local))
 
-    def _score_candidate(self, candidate: int, target: float, settings: dict, phrase_pos: float,
-                          is_vowel: bool, is_stretch: bool, chord_mode: bool,
-                          scale: Sequence[int], contour_bias: float, cadence: bool,
-                          markov_note: int | None) -> float:
+    def _score_candidate(
+        self,
+        candidate: int,
+        target: float,
+        settings: dict,
+        phrase_pos: float,
+        is_vowel: bool,
+        is_stretch: bool,
+        chord_mode: bool,
+        scale: Sequence[int],
+        contour_bias: float,
+        cadence: bool,
+        markov_note: int | None,
+    ) -> float:
         motion = candidate - self.last_note
         distance = abs(candidate - target)
         abs_motion = abs(motion)
@@ -292,11 +333,16 @@ class MelodyBrain:
             score -= 0.8
 
         # Repetition becomes attractive for Tight, but not endlessly.
-        if len(self.note_history) >= 2 and candidate == int(round(self.note_history[-1])) == int(round(self.note_history[-2])):
+        if len(self.note_history) >= 2 and candidate == int(
+            round(self.note_history[-1])
+        ) == int(round(self.note_history[-2])):
             score -= 2.7
 
         # Leap resolution.
-        if len(self.note_history) >= 1 and abs(self.note_history[-1] - self.last_note) >= 4:
+        if (
+            len(self.note_history) >= 1
+            and abs(self.note_history[-1] - self.last_note) >= 4
+        ):
             if motion * self._previous_direction < 0:
                 score += 2.4
             elif motion * self._previous_direction > 0:
@@ -348,12 +394,24 @@ class MelodyBrain:
 
         return score
 
-    def get_smart_note(self, root_midi, scale_name, phoneme, intone_level="Tight (1)",
-                       flat_mode=False, quarter_tone=False, use_motifs=True,
-                       chord_mode=False, contour_bias=0, pitch_range=70,
-                       accent="None"):
+    def get_smart_note(
+        self,
+        root_midi,
+        scale_name,
+        phoneme,
+        intone_level="Tight (1)",
+        flat_mode=False,
+        quarter_tone=False,
+        use_motifs=True,
+        chord_mode=False,
+        contour_bias=0,
+        pitch_range=70,
+        accent="None",
+    ):
         scale = SCALES[scale_name]
-        settings = self._intone_cache.setdefault(intone_level, get_intone_settings(intone_level))
+        settings = self._intone_cache.setdefault(
+            intone_level, get_intone_settings(intone_level)
+        )
 
         if self._phrase_start or self.phrase_len == 0:
             self._start_phrase(settings, contour_bias, pitch_range, int(root_midi))
@@ -366,24 +424,43 @@ class MelodyBrain:
         cadence = self.phrase_len >= max(1, self._phrase_length - 1)
 
         # Motif continuation is a suggestion layered onto the candidate score.
-        if use_motifs and self._active_motif is None and self.motif_memory.stored_motifs:
+        if (
+            use_motifs
+            and self._active_motif is None
+            and self.motif_memory.stored_motifs
+        ):
             trigger = 0.22 if self._phrase_index > 0 else 0.08
             if self.rng.random() < trigger:
                 self._active_motif = self.motif_memory.choose()
                 self._motif_index = 0
 
         motif_target = None
-        if use_motifs and self._active_motif and self._motif_index < len(self._active_motif):
+        if (
+            use_motifs
+            and self._active_motif
+            and self._motif_index < len(self._active_motif)
+        ):
             motif_target = self.last_note + self._active_motif[self._motif_index]
 
         candidates = self._candidate_pool(scale, settings, target, is_vowel)
-        markov_note = self.markov.next_note(self.note_history[-1:], int(is_vowel), scale)
+        markov_note = self.markov.next_note(
+            self.note_history[-1:], int(is_vowel), scale
+        )
 
         scored: list[tuple[float, int]] = []
         for candidate in candidates:
             score = self._score_candidate(
-                candidate, target, settings, phrase_pos, is_vowel, is_stretch,
-                chord_mode, scale, contour_bias, cadence, markov_note,
+                candidate,
+                target,
+                settings,
+                phrase_pos,
+                is_vowel,
+                is_stretch,
+                chord_mode,
+                scale,
+                contour_bias,
+                cadence,
+                markov_note,
             )
             if motif_target is not None:
                 score += max(-2.5, 3.0 - 0.7 * abs(candidate - motif_target))
@@ -411,7 +488,10 @@ class MelodyBrain:
 
         if flat_mode:
             # Flat mode is now truly flat while preserving the voice root.
-            chosen = min(self._scale_candidates(scale, self._effective_range), key=lambda n: abs(n - self._phrase_register))
+            chosen = min(
+                self._scale_candidates(scale, self._effective_range),
+                key=lambda n: abs(n - self._phrase_register),
+            )
 
         chosen = max(0.0, min(self._effective_range, float(chosen)))
         self.prev_high_pitch = self.is_high_pitch
@@ -419,7 +499,9 @@ class MelodyBrain:
         self.word_pos += 1
         if self.word_pos >= self.pitch_drop_pos:
             self.is_high_pitch = False
-        if phoneme in "。！？,，、" or (self.word_morae and self.word_pos >= len(self.word_morae)):
+        if phoneme in "。！？,，、" or (
+            self.word_morae and self.word_pos >= len(self.word_morae)
+        ):
             self.word_pos = 0
             self.is_high_pitch = False
 
@@ -438,7 +520,9 @@ class MelodyBrain:
 
         if len(self.note_history) >= 4:
             self.motif_memory.add_motif(self.note_history)
-            self.train_markov([phoneme] * min(len(self.note_history), 32), self.note_history[-32:])
+            self.train_markov(
+                [phoneme] * min(len(self.note_history), 32), self.note_history[-32:]
+            )
 
         if cadence or phoneme in "。！？":
             self.phrases.append(self.last_note)

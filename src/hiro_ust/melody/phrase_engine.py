@@ -9,6 +9,7 @@ The engine separates musical planning from note rendering:
 
 This is intentionally deterministic for a given seed.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -89,7 +90,9 @@ class PhraseMelodyEngine:
             steps.append(step)
         return tuple(steps)
 
-    def plan_phrase(self, length: int, register: int, contour_bias: float = 0.0) -> PhrasePlan:
+    def plan_phrase(
+        self, length: int, register: int, contour_bias: float = 0.0
+    ) -> PhrasePlan:
         length = max(2, int(length))
         contour = self._choose_contour(contour_bias)
         if self.motifs and self.rng.random() < self.policy.motif_probability:
@@ -124,9 +127,13 @@ class PhraseMelodyEngine:
             if i == 0:
                 result.append(current)
                 continue
-            target = plan.register + (self._contour(plan.contour, i, plan.length) - 0.5) * 10
+            target = (
+                plan.register + (self._contour(plan.contour, i, plan.length) - 0.5) * 10
+            )
             desired = current + plan.intervals[i - 1]
-            candidates = sorted(pool, key=lambda n: abs(n - target) + 0.55 * abs(n - desired))
+            candidates = sorted(
+                pool, key=lambda n: abs(n - target) + 0.55 * abs(n - desired)
+            )
             window = candidates[: min(7, len(candidates))]
             current = self.rng.choice(window)
             result.append(current)
