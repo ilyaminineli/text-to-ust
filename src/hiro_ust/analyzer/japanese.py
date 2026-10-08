@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unicodedata
 
-KANJI_RANGES = (("\u3400", "\u4dbf"), ("\u4e00", "\u9fff"), ("\uf900", "\ufaff"))
+KANJI_RANGES = (("㐀", "䶿"), ("一", "鿿"), ("豈", "﫿"))
 
 
 def contains_kanji(text: str) -> bool:
@@ -21,7 +21,7 @@ def normalize_reading(text: str) -> str:
     if not text:
         return ""
     value = "".join(
-        chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch
+        chr(ord(ch) - 0x60) if "ァ" <= ch <= "ヶ" else ch
         for ch in text
     )
     vowels = {
@@ -45,7 +45,7 @@ def normalize_reading(text: str) -> str:
 
 def _is_kana(text: str) -> bool:
     return bool(text) and all(
-        "\u3040" <= ch <= "\u309f" or "\u30a0" <= ch <= "\u30ff" or ch == "ー"
+        "぀" <= ch <= "ゟ" or "゠" <= ch <= "ヿ" or ch == "ー"
         for ch in text
     )
 
@@ -73,6 +73,7 @@ class AnalyzerToken:
 class JapaneseAnalysis:
     text: str
     reading: str
+    spaced: str
     furigana: str
     tokens: tuple[AnalyzerToken, ...]
 
@@ -132,6 +133,7 @@ class JapaneseAnalyzer:
             if not isinstance(payload, dict):
                 result.append(self._fallback_analysis(text))
                 continue
+
             raw_tokens = payload.get("tokens", [])
             tokens: list[AnalyzerToken] = []
             cursor = 0
@@ -162,11 +164,15 @@ class JapaneseAnalyzer:
                     )
                 )
 
+            # IMPORTANT: this string is produced by Kuroshiro itself.
+            # It is the canonical singing reading and must not be rebuilt
+            # from Kuromoji token readings.
             reading = normalize_reading(str(payload.get("reading", "")) or text)
             result.append(
                 JapaneseAnalysis(
                     text=text,
                     reading=reading,
+                    spaced=str(payload.get("spaced", "")),
                     furigana=str(payload.get("furigana", "")),
                     tokens=tuple(tokens),
                 )
@@ -195,6 +201,7 @@ class JapaneseAnalyzer:
         return JapaneseAnalysis(
             text=text,
             reading=normalize_reading(token.reading or text),
+            spaced=text,
             furigana=text,
             tokens=(token,),
         )
