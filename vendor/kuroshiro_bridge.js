@@ -10,13 +10,16 @@ function resolveExport(value) {
   return null;
 }
 
-function assertNoKanji(label, value) {
-  const kanjiPattern = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
-  if (kanjiPattern.test(value)) {
-    throw new Error(
-      `${label} contains Kanji when kana was required: ${JSON.stringify(value)}`
-    );
-  }
+const KANJI_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
+
+function containsKanji(value) {
+  return KANJI_RE.test(String(value || ""));
+}
+
+function katakanaToHiragana(value) {
+  return String(value || "").replace(/[\u30A1-\u30F6]/g, (ch) => {
+    return String.fromCharCode(ch.charCodeAt(0) - 0x60);
+  });
 }
 
 function loadNodeModule(name) {
@@ -30,6 +33,25 @@ function loadNodeModule(name) {
   }
 }
 
+function normalizeTokens(raw) {
+  return raw.map((token) => ({
+    surface: token.surface_form || "",
+    reading: token.reading || "",
+    pronunciation: token.pronunciation || "",
+    lemma: token.basic_form || token.surface_form || "",
+    word_type: token.word_type || "",
+    pos: token.pos || "",
+    pos_detail: [
+      token.pos_detail_1 || "",
+      token.pos_detail_2 || "",
+      token.pos_detail_3 || "",
+    ].filter(Boolean).join("/"),
+    conjugated_type: token.conjugated_type || "",
+    conjugated_form: token.conjugated_form || "",
+    word_position: Number(token.word_position || 1),
+  }));
+}
+
 async function main() {
   const input = fs.readFileSync(0, "utf8");
   const payload = JSON.parse(input || "[]");
@@ -37,13 +59,6 @@ async function main() {
     ? payload.map(String)
     : [String(payload || "")];
 
-  // IMPORTANT:
-  // Do NOT require the browserified vendor analyzer here.
-  //
-  // kuroshiro-analyzer-kuromoji.min.js bundles BrowserDictionaryLoader,
-  // which uses XMLHttpRequest. This process is Node.js, so it must use the
-  // CommonJS analyzer package, whose dependency on kuromoji uses the Node
-  // dictionary loader and reads the .dat.gz files from disk.
   const KuroshiroModule = loadNodeModule("kuroshiro");
   const AnalyzerModule = loadNodeModule("kuroshiro-analyzer-kuromoji");
 
@@ -56,30 +71,19 @@ async function main() {
     );
   }
 
-  const dictPath = path.resolve(
-    __dirname,
-    "kuromoji",
-    "dict"
-  );
-
+  const dictPath = path.resolve(__dirname, "kuromoji", "dict");
   if (!fs.existsSync(dictPath)) {
     throw new Error(`Kuromoji dictionary directory not found: ${dictPath}`);
   }
 
-  const dictionaryFiles = fs
-    .readdirSync(dictPath)
+  const dictionaryFiles = fs.readdirSync(dictPath)
     .filter((name) => name.endsWith(".dat.gz"));
 
   if (dictionaryFiles.length === 0) {
-    throw new Error(
-      `Kuromoji dictionary contains no .dat.gz archives: ${dictPath}`
-    );
+    throw new Error(`Kuromoji dictionary contains no .dat.gz archives: ${dictPath}`);
   }
 
   const kuroshiro = new Kuroshiro();
-
-  // This CommonJS analyzer uses kuromoji's NodeDictionaryLoader.
-  // The existing vendored .dat.gz archives remain the dictionary source.
   const analyzer = new Analyzer({
     dictPath: `${dictPath}${path.sep}`,
   });
@@ -89,45 +93,36 @@ async function main() {
   const result = [];
 
   for (const text of texts) {
-    const reading = await kuroshiro.convert(text, {
-      to: "hiragana",
-      mode: "normal",
-    });
-
-    const spaced = await kuroshiro.convert(text, {
-      to: "hiragana",
-      mode: "spaced",
-    });
-
-    const furigana = await kuroshiro.convert(text, {
-      to: "hiragana",
-      mode: "furigana",
-    });
-
-    assertNoKanji("Kuroshiro normal reading", String(reading || ""));
-
-    // Kuromoji analyzer instance exposes parse() after initialization.
     const raw = await analyzer.parse(text);
+    const tokens = normalizeTokens(raw);
 
-    const tokens = raw.map((token) => ({
-      surface: token.surface_form || "",
-      reading: token.reading || "",
-      pronunciation: token.pronunciation || "",
-      lemma: token.basic_form || token.surface_form || "",
-      pos: token.pos || "",
-      pos_detail: [
-        token.pos_detail_1 || "",
-        token.pos_detail_2 || "",
-        token.pos_detail_3 || "",
-      ].filter(Boolean).join("/"),
-      word_position: Number(token.word_position || 1),
-    }));
+    const reading = String(
+      await kuroshiro.convert(text, {
+        to: "hiragana",
+        mode: "normal",
+      }) || ""
+    );
+
+    const spaced = String(
+      await kuroshiro.convert(text, {
+        to: "hiragana",
+        mode: "spaced",
+      }) || ""
+    );
+
+    const furigana = String(
+      await kuroshiro.convert(text, {
+        to: "hiragana",
+        mode: "furigana",
+      }) || ""
+    );
 
     result.push({
       text,
-      reading: String(reading || ""),
-      spaced: String(spaced || ""),
-      furigana: String(furigana || ""),
+      reading,
+      reading_complete: !containsKanji(reading),
+      spaced,
+      furigana,
       tokens,
     });
   }
