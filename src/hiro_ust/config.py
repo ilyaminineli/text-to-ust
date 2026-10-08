@@ -1,4 +1,5 @@
 """Configuration and validated runtime settings for Hiro UST."""
+
 from dataclasses import dataclass
 
 
@@ -65,15 +66,31 @@ class GeneratorConfig:
             raise ValueError("root_key must be between 0 and 127")
         if not 0 <= self.range_low < self.range_high <= 127:
             raise ValueError("range_low/range_high must be valid MIDI bounds")
-        if not HiroConfig.MIN_LENGTH_VAR <= self.length_var <= HiroConfig.MAX_LENGTH_VAR:
+        if (
+            not HiroConfig.MIN_LENGTH_VAR
+            <= self.length_var
+            <= HiroConfig.MAX_LENGTH_VAR
+        ):
             raise ValueError("length_var must be between 0 and 1")
         if not HiroConfig.MIN_STRETCH <= self.stretch_prob <= HiroConfig.MAX_STRETCH:
             raise ValueError("stretch_prob must be between 0 and 1")
-        if not HiroConfig.MIN_PRE_UTTER <= self.pre_utterance <= HiroConfig.MAX_PRE_UTTER:
+        if (
+            not HiroConfig.MIN_PRE_UTTER
+            <= self.pre_utterance
+            <= HiroConfig.MAX_PRE_UTTER
+        ):
             raise ValueError("pre_utterance is outside the supported range")
-        if not HiroConfig.MIN_VOICE_OVERLAP <= self.voice_overlap <= HiroConfig.MAX_VOICE_OVERLAP:
+        if (
+            not HiroConfig.MIN_VOICE_OVERLAP
+            <= self.voice_overlap
+            <= HiroConfig.MAX_VOICE_OVERLAP
+        ):
             raise ValueError("voice_overlap is outside the supported range")
-        if not HiroConfig.MIN_INTENSITY <= self.intensity_base <= HiroConfig.MAX_INTENSITY:
+        if (
+            not HiroConfig.MIN_INTENSITY
+            <= self.intensity_base
+            <= HiroConfig.MAX_INTENSITY
+        ):
             raise ValueError("intensity_base is outside the supported range")
 
     @property

@@ -3,23 +3,135 @@
 import re
 
 ROMAJI_MAP = {
-    "a":"あ","i":"い","u":"う","e":"え","o":"お","ā":"あー","ī":"いー","ū":"うー","ē":"えー","ō":"おー",
-    "ka":"か","ki":"き","ku":"く","ke":"け","ko":"こ","ga":"が","gi":"ぎ","gu":"ぐ","ge":"げ","go":"ご",
-    "kya":"きゃ","kyu":"きゅ","kyo":"きょ","gya":"ぎゃ","gyu":"ぎゅ","gyo":"ぎょ",
-    "sa":"さ","shi":"し","su":"す","se":"せ","so":"そ","za":"ざ","ji_s":"じ","zu":"ず","ze":"ぜ","zo":"ぞ",
-    "sha":"しゃ","shu":"しゅ","sho":"しょ","ja":"じゃ","ju":"じゅ","jo":"じょ",
-    "ta":"た","chi":"ち","tsu":"つ","te":"て","to":"と","da":"だ","ji_t":"ぢ","zu_t":"づ","de":"で","do":"ど",
-    "cha":"ちゃ","chu":"ちゅ","cho":"ちょ",
-    "na":"な","ni":"に","nu":"ぬ","ne":"ね","no":"の","nya":"にゃ","nyu":"にゅ","nyo":"にょ",
-    "ha":"は","hi":"ひ","fu":"ふ","he":"へ","ho":"ほ","ba":"ば","bi":"び","bu":"ぶ","be":"べ","bo":"ぼ",
-    "pa":"ぱ","pi":"ぴ","pu":"ぷ","pe":"ぺ","po":"ぽ","hya":"ひゃ","hyu":"ひゅ","hyo":"ひょ",
-    "ma":"ま","mi":"み","mu":"む","me":"め","mo":"も","mya":"みゃ","myu":"みゅ","myo":"みょ",
-    "ya":"や","yu":"ゆ","yo":"よ","ra":"ら","ri":"り","ru":"る","re":"れ","ro":"ろ","rya":"りゃ","ryu":"りゅ","ryo":"りょ",
-    "wa":"わ","wi":"うぃ","we":"うぇ","wo":"を","n":"ん","っ":"っ","xtsu":"っ","-":"ー",
+    "a": "あ",
+    "i": "い",
+    "u": "う",
+    "e": "え",
+    "o": "お",
+    "ā": "あー",
+    "ī": "いー",
+    "ū": "うー",
+    "ē": "えー",
+    "ō": "おー",
+    "ka": "か",
+    "ki": "き",
+    "ku": "く",
+    "ke": "け",
+    "ko": "こ",
+    "ga": "が",
+    "gi": "ぎ",
+    "gu": "ぐ",
+    "ge": "げ",
+    "go": "ご",
+    "kya": "きゃ",
+    "kyu": "きゅ",
+    "kyo": "きょ",
+    "gya": "ぎゃ",
+    "gyu": "ぎゅ",
+    "gyo": "ぎょ",
+    "sa": "さ",
+    "shi": "し",
+    "su": "す",
+    "se": "せ",
+    "so": "そ",
+    "za": "ざ",
+    "ji_s": "じ",
+    "zu": "ず",
+    "ze": "ぜ",
+    "zo": "ぞ",
+    "sha": "しゃ",
+    "shu": "しゅ",
+    "sho": "しょ",
+    "ja": "じゃ",
+    "ju": "じゅ",
+    "jo": "じょ",
+    "ta": "た",
+    "chi": "ち",
+    "tsu": "つ",
+    "te": "て",
+    "to": "と",
+    "da": "だ",
+    "ji_t": "ぢ",
+    "zu_t": "づ",
+    "de": "で",
+    "do": "ど",
+    "cha": "ちゃ",
+    "chu": "ちゅ",
+    "cho": "ちょ",
+    "na": "な",
+    "ni": "に",
+    "nu": "ぬ",
+    "ne": "ね",
+    "no": "の",
+    "nya": "にゃ",
+    "nyu": "にゅ",
+    "nyo": "にょ",
+    "ha": "は",
+    "hi": "ひ",
+    "fu": "ふ",
+    "he": "へ",
+    "ho": "ほ",
+    "ba": "ば",
+    "bi": "び",
+    "bu": "ぶ",
+    "be": "べ",
+    "bo": "ぼ",
+    "pa": "ぱ",
+    "pi": "ぴ",
+    "pu": "ぷ",
+    "pe": "ぺ",
+    "po": "ぽ",
+    "hya": "ひゃ",
+    "hyu": "ひゅ",
+    "hyo": "ひょ",
+    "ma": "ま",
+    "mi": "み",
+    "mu": "む",
+    "me": "め",
+    "mo": "も",
+    "mya": "みゃ",
+    "myu": "みゅ",
+    "myo": "みょ",
+    "ya": "や",
+    "yu": "ゆ",
+    "yo": "よ",
+    "ra": "ら",
+    "ri": "り",
+    "ru": "る",
+    "re": "れ",
+    "ro": "ろ",
+    "rya": "りゃ",
+    "ryu": "りゅ",
+    "ryo": "りょ",
+    "wa": "わ",
+    "wi": "うぃ",
+    "we": "うぇ",
+    "wo": "を",
+    "n": "ん",
+    "っ": "っ",
+    "xtsu": "っ",
+    "-": "ー",
 }
 
-ENGLISH_VOWEL_MAP = {"a":"あ","e":"え","i":"い","o":"お","u":"う"}
-ENGLISH_CONSONANT_MAP = {"b":"b","k":"k","g":"g","d":"d","t":"t","p":"p","m":"m","n":"ん","r":"r","s":"s","h":"h","f":"f","v":"v","ch":"ち","sh":"し","j":"じ"}
+ENGLISH_VOWEL_MAP = {"a": "あ", "e": "え", "i": "い", "o": "お", "u": "う"}
+ENGLISH_CONSONANT_MAP = {
+    "b": "b",
+    "k": "k",
+    "g": "g",
+    "d": "d",
+    "t": "t",
+    "p": "p",
+    "m": "m",
+    "n": "ん",
+    "r": "r",
+    "s": "s",
+    "h": "h",
+    "f": "f",
+    "v": "v",
+    "ch": "ち",
+    "sh": "し",
+    "j": "じ",
+}
 PUNCTUATION = set("。、！？,!?;:…")
 
 
@@ -50,6 +162,7 @@ class Phonemizer:
 
     def _hiragana_to_phonemes(self, text: str):
         from hiro_ust.converter import HiroUSTGenerator
+
         generator = HiroUSTGenerator()
         result = []
         chunk = []
@@ -67,6 +180,7 @@ class Phonemizer:
 
     def _romaji_to_phonemes(self, text: str):
         from hiro_ust.converter import HiroUSTGenerator
+
         generator = HiroUSTGenerator()
         phonemes = []
         for token in re.findall(r"[a-zāīūēō-]+|[^\s]", text):
@@ -77,7 +191,7 @@ class Phonemizer:
             hiragana = []
             while i < len(token):
                 for length in (4, 3, 2, 1):
-                    candidate = token[i:i + length]
+                    candidate = token[i : i + length]
                     if candidate in ROMAJI_MAP:
                         hiragana.append(ROMAJI_MAP[candidate])
                         i += length
@@ -97,12 +211,16 @@ class Phonemizer:
                 continue
             i = 0
             while i < len(word):
-                if word[i:i + 2] in {"ch", "sh"}:
-                    phonemes.append(ENGLISH_CONSONANT_MAP[word[i:i + 2]])
+                if word[i : i + 2] in {"ch", "sh"}:
+                    phonemes.append(ENGLISH_CONSONANT_MAP[word[i : i + 2]])
                     i += 2
                 else:
                     char = word[i]
-                    phonemes.append(ENGLISH_VOWEL_MAP.get(char, ENGLISH_CONSONANT_MAP.get(char, char)))
+                    phonemes.append(
+                        ENGLISH_VOWEL_MAP.get(
+                            char, ENGLISH_CONSONANT_MAP.get(char, char)
+                        )
+                    )
                     i += 1
         return phonemes
 

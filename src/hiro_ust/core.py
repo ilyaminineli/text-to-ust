@@ -1,4 +1,5 @@
 """Public core API for Hiro UST."""
+
 from __future__ import annotations
 
 import random
@@ -22,11 +23,17 @@ class HiroUSTProcessor:
         self.lyric_parser = LyricParser()
         self.melody = PhraseMelodyEngine(seed=self.config.seed)
 
-    def process_lyrics(self, lyrics: str, project_name: str = "Hiro_Main", output_format: str = "ustx") -> str:
+    def process_lyrics(
+        self, lyrics: str, project_name: str = "Hiro_Main", output_format: str = "ustx"
+    ) -> str:
         if output_format not in {"ust", "ustx"}:
             raise ValueError("output_format must be 'ust' or 'ustx'")
         doc = self.lyric_parser.parse(lyrics, self.phonemizer)
-        writer = USTWriter(project_name, self.config.tempo) if output_format == "ust" else USTXWriter(project_name, self.config.tempo)
+        writer = (
+            USTWriter(project_name, self.config.tempo)
+            if output_format == "ust"
+            else USTXWriter(project_name, self.config.tempo)
+        )
         rng = random.Random(self.config.seed + 17)
 
         for section_index, section in enumerate(doc.sections):
@@ -37,7 +44,9 @@ class HiroUSTProcessor:
                     writer.add_rest(self.config.base_length)
                 for word_index, word in enumerate(line.words):
                     if word_index:
-                        writer.add_rest(max(HiroConfig.MIN_NOTE_LEN, self.config.base_length // 2))
+                        writer.add_rest(
+                            max(HiroConfig.MIN_NOTE_LEN, self.config.base_length // 2)
+                        )
                     phonemes = [p for p in word.phonemes if p not in "。、！？,，…"]
                     if not phonemes:
                         continue
@@ -55,7 +64,9 @@ class HiroUSTProcessor:
                     for phoneme, pitch in zip(phonemes, pitches):
                         length = self._note_length(phoneme, rng)
                         if phoneme == "っ":
-                            writer.add_small_tsu(self.config.effective_root_key, length=min(60, length))
+                            writer.add_small_tsu(
+                                self.config.effective_root_key, length=min(60, length)
+                            )
                         else:
                             writer.add_note(
                                 length=length,
@@ -73,8 +84,13 @@ class HiroUSTProcessor:
             return 60
         char = phoneme[-1:] if phoneme else ""
         factor = 1.0 if char in "aeiou" else 0.65
-        factor *= rng.uniform(1.0 - self.config.length_var * 0.35, 1.0 + self.config.length_var * 0.2)
-        return max(HiroConfig.MIN_NOTE_LEN, min(HiroConfig.MAX_NOTE_LEN, int(self.config.base_length * factor)))
+        factor *= rng.uniform(
+            1.0 - self.config.length_var * 0.35, 1.0 + self.config.length_var * 0.2
+        )
+        return max(
+            HiroConfig.MIN_NOTE_LEN,
+            min(HiroConfig.MAX_NOTE_LEN, int(self.config.base_length * factor)),
+        )
 
     def get_supported_scales(self) -> list[str]:
         return list(SCALES)
