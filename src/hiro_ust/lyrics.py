@@ -1,10 +1,4 @@
-"""Structured Japanese lyric representation.
-
-The parser keeps three layers separate:
-- source text units chosen by the lyricist (usually whitespace-separated)
-- linguistic morphemes from the Japanese analyzer
-- UTAU-ready phonemes produced from each morpheme reading
-"""
+"""Structured Japanese lyrics with Kuroshiro readings and UTAU phonemes."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -23,7 +17,7 @@ class LyricMorpheme:
 
     @property
     def reading(self) -> str:
-        return self.token.reading_hiragana or self.token.reading
+        return self.token.reading_hiragana or self.token.surface
 
     @property
     def pos(self) -> str:
@@ -42,14 +36,17 @@ class LyricMorpheme:
 class LyricWord:
     text: str
     morphemes: list[LyricMorpheme] = field(default_factory=list)
+    reading_override: str = ""
 
     @property
     def reading(self) -> str:
-        return "".join(m.reading for m in self.morphemes)
+        return self.reading_override or "".join(m.reading for m in self.morphemes)
 
     @property
     def phonemes(self) -> list[str]:
         result: list[str] = []
+        if self.reading_override:
+            return result
         for morpheme in self.morphemes:
             result.extend(morpheme.phonemes)
         return result
@@ -64,7 +61,7 @@ class LyricWord:
             f"{m.surface}={m.reading or '?'}[{m.pos or '?'}]"
             for m in self.morphemes
             if not m.is_punctuation
-        )
+        ) or f"{self.text}={self.reading or '?'}"
 
 
 @dataclass
@@ -113,79 +110,14 @@ class LyricDocument:
 
 
 class LyricParser:
-    """Parse sections, obtain furigana/reading from Kuromoji, then phonemize."""
+    """Preserve lyric grouping, but always derive singing text from furigana."""
 
     def __init__(self, analyzer: JapaneseAnalyzer | None = None):
         self.analyzer = analyzer or JapaneseAnalyzer()
 
     @staticmethod
-    def _split_units(line: str) -> list[tuple[str, int, int]]:
-        normalized = line.replace("\u3000", " ")
-        result: list[tuple[str, int, int]] = []
-        cursor = 0
-        for part in normalized.split():
-            start = normalized.find(part, cursor)
-            end = start + len(part)
-            result.append((part, start, end))
-            cursor = end
-        return result
-
-    @staticmethod
-    def _assign_token_to_unit(
-        token: AnalyzerToken,
-        spans: list[tuple[str, int, int]],
-    ) -> int:
-        if not spans:
-            return -1
-        if token.surface.strip() == "":
-            return -1
-
-        center = (token.start + token.end) / 2
-        for index, (_, start, end) in enumerate(spans):
-            if start <= center < end:
-                return index
-
-        return min(
-            range(len(spans)),
-            key=lambda i: abs(center - ((spans[i][1] + spans[i][2]) / 2)),
-        )
-
-    @staticmethod
-    def _build_unit_from_tokens(
-        unit: str,
-        tokens: list[AnalyzerToken],
-        phonemizer,
-    ) -> LyricWord | None:
-        morphemes: list[LyricMorpheme] = []
-        for token in sorted(tokens, key=lambda item: (item.start, item.end)):
-            reading = token.reading_hiragana or token.surface
-            phonemes = phonemizer.text_to_phonemes(reading)
-            morphemes.append(LyricMorpheme(token=token, phonemes=phonemes))
-
-        if not morphemes:
-            # A kana-only unit may legitimately be absent from a degraded
-            # analyzer result. Keep it rather than silently deleting lyrics.
-            reading = unit
-            phonemes = phonemizer.text_to_phonemes(reading)
-            if not phonemes:
-                return None
-
-            synthetic = AnalyzerToken(
-                surface=unit,
-                reading=reading,
-                lemma=unit,
-                normalized=unit,
-                pos="",
-                pos_detail="synthetic",
-                start=0,
-                end=len(unit),
-                kanji=False,
-                kana=True,
-                punctuation=False,
-            )
-            morphemes.append(LyricMorpheme(token=synthetic, phonemes=phonemes))
-
-        return LyricWord(text=unit, morphemes=morphemes)
+    def _split_units(line: str) -> list[str]:
+        return [part for part in line.replace("\u3000", " ").split() if part]
 
     def parse(self, text: str, phonemizer) -> LyricDocument:
         if not isinstance(text, str) or not text.strip():
@@ -195,50 +127,55 @@ class LyricParser:
         current = LyricSection("Main")
         sections.append(current)
 
-        pending: list[tuple[LyricSection, str, str, list[tuple[str, int, int]]]] = []
-
+        pending: list[tuple[LyricSection, str, str]] = []
         for raw in text.splitlines():
             line = raw.strip()
             if not line:
                 continue
-
             if line.startswith("[") and line.endswith("]") and len(line) > 2:
                 current = LyricSection(line[1:-1].strip())
                 sections.append(current)
                 continue
+            for unit in self._split_units(line):
+                pending.append((current, unit, line))
 
-            normalized = line.replace("\u3000", " ")
-            spans = self._split_units(normalized)
-            if spans:
-                pending.append((current, normalized, line, spans))
+        analyses = self.analyzer.analyze_detailed_many([item[1] for item in pending])
 
-        analyses = self.analyzer.analyze_many([item[1] for item in pending])
+        for (section, unit, source_line), analysis in zip(pending, analyses):
+            # Kuroshiro is authoritative for singing reading. Kuromoji tokens
+            # remain metadata where they are trustworthy, but never override a
+            # Kanji reading with raw surface text.
+            reading = analysis.reading or unit
+            phonemes = phonemizer.text_to_phonemes(reading)
+            morphemes: list[LyricMorpheme] = []
 
-        for (section, normalized, original, spans), tokens in zip(pending, analyses):
-            buckets: list[list[AnalyzerToken]] = [[] for _ in spans]
-
-            # IMPORTANT: tokens come from the complete lyric line. This lets
-            # Kuromoji resolve both Kanji and grammar, while our spaces remain
-            # user-controlled musical group boundaries.
-            for token in tokens:
-                index = self._assign_token_to_unit(token, spans)
-                if index >= 0:
-                    buckets[index].append(token)
-
-            words: list[LyricWord] = []
-            for index, (unit, _, _) in enumerate(spans):
-                word = self._build_unit_from_tokens(unit, buckets[index], phonemizer)
-                if word is not None:
-                    words.append(word)
-
-            if words:
-                punctuation = ""
-                trailing = original.rstrip()
-                if trailing and trailing[-1] in "。、！？!?…":
-                    punctuation = trailing[-1]
-                section.lines.append(
-                    LyricLine(words=words, punctuation=punctuation, section=section.name)
+            for token in analysis.tokens:
+                token_reading = token.reading_hiragana
+                if not token_reading or token_reading == token.surface and any(ch > "\u309f" for ch in token.surface):
+                    continue
+                morphemes.append(
+                    LyricMorpheme(token=token, phonemes=phonemizer.text_to_phonemes(token_reading))
                 )
+
+            if not morphemes:
+                synthetic = AnalyzerToken(
+                    surface=unit,
+                    reading=reading,
+                    lemma=unit,
+                    normalized=unit,
+                    pos="",
+                    pos_detail="kuroshiro-reading",
+                    start=0,
+                    end=len(unit),
+                    kanji=any("\u3400" <= ch <= "\u9fff" for ch in unit),
+                    kana=not any("\u3400" <= ch <= "\u9fff" for ch in unit),
+                    punctuation=False,
+                )
+                morphemes = [LyricMorpheme(token=synthetic, phonemes=phonemes)]
+
+            current_word = LyricWord(text=unit, morphemes=morphemes, reading_override=reading)
+            punctuation = source_line.rstrip()[-1:] if source_line.rstrip().endswith(tuple("。、！？!?…")) else ""
+            current.lines.append(LyricLine(words=[current_word], punctuation=punctuation, section=section.name))
 
         return LyricDocument(sections=sections, analyzer_backend=self.analyzer.backend)
 

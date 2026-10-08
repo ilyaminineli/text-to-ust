@@ -1,4 +1,4 @@
-"""Japanese linguistic analysis backed by vendored Kuroshiro/Kuromoji."""
+"""Japanese reading analysis backed by vendored Kuroshiro/Kuromoji."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,40 +9,37 @@ import subprocess
 import sys
 import unicodedata
 
-KANJI_RANGES = (("\u3400", "\u4dbf"), ("\u4e00", "\u9fff"))
+KANJI_RANGES = (("\u3400", "\u4dbf"), ("\u4e00", "\u9fff"), ("\uf900", "\ufaff"))
 
 
 def contains_kanji(text: str) -> bool:
     return any(any(a <= ch <= b for a, b in KANJI_RANGES) for ch in text)
 
 
-_VOWEL_BY_HIRAGANA = {
-    **dict.fromkeys("あかがさざただなはばぱまゃやらわぁ", "あ"),
-    **dict.fromkeys("いきぎしじちぢにひびぴみりぃ", "い"),
-    **dict.fromkeys("うくぐすずつづぬふぶぷむゅゆるぅ", "う"),
-    **dict.fromkeys("えけげせぜてでねへべぺめれぇ", "え"),
-    **dict.fromkeys("おこごそぞとどのほぼぽもょよろをぉ", "お"),
-}
-
-
-def normalize_japanese_reading(text: str) -> str:
-    """Normalize kana reading for singing-friendly UTAU phonemization."""
+def normalize_reading(text: str) -> str:
+    """Normalize Kuroshiro hiragana output for UTAU-style mora parsing."""
     if not text:
         return ""
     value = "".join(
         chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch
         for ch in text
     )
+    vowels = {
+        **dict.fromkeys("あかがさざただなはばぱまゃやらわぁ", "あ"),
+        **dict.fromkeys("いきぎしじちぢにひびぴみりぃ", "い"),
+        **dict.fromkeys("うくぐすずつづぬふぶぷむゅゆるぅ", "う"),
+        **dict.fromkeys("えけげせぜてでねへべぺめれぇ", "え"),
+        **dict.fromkeys("おこごそぞとどのほぼぽもょよろをぉ", "お"),
+    }
     result: list[str] = []
     last_vowel = ""
-    for ch in value:
-        if ch == "ー":
-            result.append(last_vowel or ch)
+    for char in value:
+        if char == "ー":
+            result.append(last_vowel or char)
             continue
-        result.append(ch)
-        vowel = _VOWEL_BY_HIRAGANA.get(ch)
-        if vowel:
-            last_vowel = vowel
+        result.append(char)
+        if char in vowels:
+            last_vowel = vowels[char]
     return "".join(result)
 
 
@@ -69,13 +66,21 @@ class AnalyzerToken:
 
     @property
     def reading_hiragana(self) -> str:
-        return normalize_japanese_reading(self.reading or self.surface)
+        return normalize_reading(self.reading or self.surface)
+
+
+@dataclass(frozen=True)
+class JapaneseAnalysis:
+    text: str
+    reading: str
+    furigana: str
+    tokens: tuple[AnalyzerToken, ...]
 
 
 class JapaneseAnalyzer:
-    """Run the vendored Kuromoji analyzer through a tiny Node bridge."""
+    """Use Kuroshiro for the canonical reading and Kuromoji for token metadata."""
 
-    def __init__(self, node_executable: str = "node"):
+    def __init__(self, node_executable: str = "node") -> None:
         self.node_executable = node_executable
         bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[3]))
         self.bridge = bundle_root / "vendor" / "kuroshiro_bridge.js"
@@ -89,17 +94,22 @@ class JapaneseAnalyzer:
         return self._available
 
     def analyze(self, text: str) -> list[AnalyzerToken]:
-        batches = self.analyze_many([text])
-        return batches[0] if batches else []
+        return list(self.analyze_detailed_many([text])[0].tokens)
 
     def analyze_many(self, texts: list[str]) -> list[list[AnalyzerToken]]:
+        return [list(item.tokens) for item in self.analyze_detailed_many(texts)]
+
+    def analyze_with_reading(self, text: str) -> JapaneseAnalysis:
+        return self.analyze_detailed_many([text])[0]
+
+    def analyze_detailed_many(self, texts: list[str]) -> list[JapaneseAnalysis]:
         if not texts:
             return []
         if not self.available:
-            return [self._fallback(text) for text in texts]
+            return [self._fallback_analysis(text) for text in texts]
 
         try:
-            p = subprocess.run(
+            process = subprocess.run(
                 [self.node_executable, str(self.bridge)],
                 input=json.dumps(texts, ensure_ascii=False),
                 text=True,
@@ -108,48 +118,42 @@ class JapaneseAnalyzer:
                 timeout=max(30, min(180, 25 + sum(len(text) for text in texts) // 2)),
                 check=False,
             )
-            if p.returncode != 0:
-                return [self._fallback(text) for text in texts]
-            raw_batches = json.loads(p.stdout or "[]")
+            if process.returncode != 0:
+                return [self._fallback_analysis(text) for text in texts]
+            raw_batches = json.loads(process.stdout or "[]")
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-            return [self._fallback(text) for text in texts]
+            return [self._fallback_analysis(text) for text in texts]
 
         if not isinstance(raw_batches, list):
-            return [self._fallback(text) for text in texts]
+            return [self._fallback_analysis(text) for text in texts]
 
-        result: list[list[AnalyzerToken]] = []
-        for text, raw_tokens in zip(texts, raw_batches):
+        result: list[JapaneseAnalysis] = []
+        for text, payload in zip(texts, raw_batches):
+            if not isinstance(payload, dict):
+                result.append(self._fallback_analysis(text))
+                continue
+            raw_tokens = payload.get("tokens", [])
             tokens: list[AnalyzerToken] = []
             cursor = 0
-            for token in raw_tokens:
-                surface = str(token.get("surface", ""))
+            for raw in raw_tokens if isinstance(raw_tokens, list) else []:
+                surface = str(raw.get("surface", ""))
                 if not surface:
                     continue
-
-                # Kuromoji's word_position is UTF-16-ish byte-oriented depending
-                # on the bridge/runtime. Resolve positions against the actual
-                # Python string instead of assuming code-unit arithmetic.
-                hinted = max(0, int(token.get("word_position", 1)) - 1)
                 position = text.find(surface, cursor)
                 if position < 0:
-                    position = text.find(surface, min(hinted, len(text)))
-                if position < 0:
-                    position = min(hinted, len(text))
-
-                start = position
+                    position = text.find(surface)
+                start = max(0, position if position >= 0 else cursor)
                 end = min(len(text), start + len(surface))
                 cursor = end
-
-                pos = str(token.get("pos", ""))
-                reading = str(token.get("reading", "")) or surface
+                pos = str(raw.get("pos", ""))
                 tokens.append(
                     AnalyzerToken(
                         surface=surface,
-                        reading=reading,
-                        lemma=str(token.get("lemma", "")) or surface,
+                        reading=str(raw.get("reading", "")) or surface,
+                        lemma=str(raw.get("lemma", "")) or surface,
                         normalized=surface,
                         pos=pos,
-                        pos_detail=str(token.get("pos_detail", "")),
+                        pos_detail=str(raw.get("pos_detail", "")),
                         start=start,
                         end=end,
                         kanji=contains_kanji(surface),
@@ -157,37 +161,49 @@ class JapaneseAnalyzer:
                         punctuation=pos in {"記号", "補助記号"},
                     )
                 )
-            result.append(tokens)
 
-        while len(result) < len(texts):
-            result.append(self._fallback(texts[len(result)]))
-        return result
-    @staticmethod
-    def _fallback(text: str) -> list[AnalyzerToken]:
-        result: list[AnalyzerToken] = []
-        cursor = 0
-        for part in text.split():
-            start = text.find(part, cursor)
-            start = cursor if start < 0 else start
-            end = start + len(part)
-            punctuation = all(unicodedata.category(ch).startswith("P") for ch in part)
+            reading = normalize_reading(str(payload.get("reading", "")) or text)
             result.append(
-                AnalyzerToken(
-                    surface=part,
-                    reading=part if _is_kana(part) else "",
-                    lemma=part,
-                    normalized=part,
-                    pos="記号" if punctuation else "名詞",
-                    pos_detail="fallback",
-                    start=start,
-                    end=end,
-                    kanji=contains_kanji(part),
-                    kana=_is_kana(part),
-                    punctuation=punctuation,
+                JapaneseAnalysis(
+                    text=text,
+                    reading=reading,
+                    furigana=str(payload.get("furigana", "")),
+                    tokens=tuple(tokens),
                 )
             )
-            cursor = end
+
+        while len(result) < len(texts):
+            result.append(self._fallback_analysis(texts[len(result)]))
         return result
 
+    @staticmethod
+    def _fallback_analysis(text: str) -> JapaneseAnalysis:
+        punctuation = all(unicodedata.category(ch).startswith("P") for ch in text) if text else False
+        token = AnalyzerToken(
+            surface=text,
+            reading=text if _is_kana(text) else "",
+            lemma=text,
+            normalized=text,
+            pos="記号" if punctuation else "",
+            pos_detail="fallback",
+            start=0,
+            end=len(text),
+            kanji=contains_kanji(text),
+            kana=_is_kana(text),
+            punctuation=punctuation,
+        )
+        return JapaneseAnalysis(
+            text=text,
+            reading=normalize_reading(token.reading or text),
+            furigana=text,
+            tokens=(token,),
+        )
 
-__all__ = ["AnalyzerToken", "JapaneseAnalyzer", "contains_kanji", "normalize_japanese_reading"]
+
+__all__ = [
+    "AnalyzerToken",
+    "JapaneseAnalysis",
+    "JapaneseAnalyzer",
+    "contains_kanji",
+    "normalize_reading",
+]

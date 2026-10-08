@@ -1,7 +1,4 @@
-"""Main PySide6 application window.
-
-The UI is an editor around the UI-independent HiroUSTProcessor.
-"""
+"""Compact editor-oriented Hiro UST workspace."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,32 +9,10 @@ import sys
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QApplication,
-    QAbstractItemView,
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QDoubleSpinBox,
-    QFileDialog,
-    QFormLayout,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPlainTextEdit,
-    QPushButton,
-    QSpinBox,
-    QSplitter,
-    QStatusBar,
-    QTableWidget,
-    QTableWidgetItem,
-    QTabWidget,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
+    QDockWidget, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QMenu, QDialogButtonBox,
 )
 
 from ..config import GeneratorConfig, HiroConfig
@@ -49,12 +24,66 @@ from .melody_preview import MelodyPreviewPanel, SimpleMelodySynth, notes_from_ou
 from .theme import apply_theme
 
 
+class GenerationDialog(QDialog):
+    def __init__(self, owner: "HiroMainWindow"):
+        super().__init__(owner)
+        self.setWindowTitle("Hiro UST — Generation")
+        self.resize(430, 420)
+        form = QFormLayout(self)
+
+        self.tempo = QDoubleSpinBox(); self.tempo.setRange(60, 240); self.tempo.setDecimals(1); self.tempo.setSuffix(" BPM"); self.tempo.setValue(owner.tempo.value())
+        self.root = QSpinBox(); self.root.setRange(0,127); self.root.setValue(owner.root_key.value())
+        self.scale = QComboBox(); self.scale.addItems(list(SCALES)); self.scale.setCurrentText(owner.scale.currentText())
+        self.range_low = QSpinBox(); self.range_low.setRange(0,127); self.range_low.setValue(owner.range_low.value())
+        self.range_high = QSpinBox(); self.range_high.setRange(0,127); self.range_high.setValue(owner.range_high.value())
+        self.base = QSpinBox(); self.base.setRange(120,1920); self.base.setSingleStep(60); self.base.setValue(owner.base_length.value())
+        self.length = QDoubleSpinBox(); self.length.setRange(0,1); self.length.setSingleStep(.05); self.length.setDecimals(2); self.length.setValue(owner.length_var.value())
+        self.stretch = QDoubleSpinBox(); self.stretch.setRange(0,1); self.stretch.setSingleStep(.05); self.stretch.setDecimals(2); self.stretch.setValue(owner.stretch_prob.value())
+        self.seed = QSpinBox(); self.seed.setRange(0,2_147_483_647); self.seed.setValue(owner.seed.value())
+        self.motifs = QCheckBox("Use motifs"); self.motifs.setChecked(owner.use_motifs.isChecked())
+        self.phrase = QCheckBox("Phrase-aware melody"); self.phrase.setChecked(owner.lyrical_mode.isChecked())
+        self.quarter = QCheckBox("Quarter-tone expression"); self.quarter.setChecked(owner.quartertone.isChecked())
+        self.output = QComboBox(); self.output.addItems(["ustx","ust"]); self.output.setCurrentText(owner.output_format.currentText())
+
+        form.addRow("Tempo", self.tempo)
+        form.addRow("Root MIDI", self.root)
+        form.addRow("Scale", self.scale)
+        form.addRow("Vocal low", self.range_low)
+        form.addRow("Vocal high", self.range_high)
+        form.addRow("Base length", self.base)
+        form.addRow("Length variation", self.length)
+        form.addRow("Stretch probability", self.stretch)
+        form.addRow("Seed", self.seed)
+        form.addRow(self.motifs)
+        form.addRow(self.phrase)
+        form.addRow(self.quarter)
+        form.addRow("Output", self.output)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def apply(self, owner: "HiroMainWindow"):
+        owner.tempo.setValue(self.tempo.value())
+        owner.root_key.setValue(self.root.value())
+        owner.scale.setCurrentText(self.scale.currentText())
+        owner.range_low.setValue(min(self.range_low.value(), self.range_high.value() - 1))
+        owner.range_high.setValue(max(self.range_high.value(), owner.range_low.value() + 1))
+        owner.base_length.setValue(self.base.value())
+        owner.length_var.setValue(self.length.value())
+        owner.stretch_prob.setValue(self.stretch.value())
+        owner.seed.setValue(self.seed.value())
+        owner.use_motifs.setChecked(self.motifs.isChecked())
+        owner.lyrical_mode.setChecked(self.phrase.isChecked())
+        owner.quartertone.setChecked(self.quarter.isChecked())
+        owner.output_format.setCurrentText(self.output.currentText())
+
+
 class HiroMainWindow(QMainWindow):
     APP_NAME = "Hiro UST"
     SETTINGS_ORG = "EliLab"
     SETTINGS_APP = "HiroUST"
 
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
         self.settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
         self.current_file: Path | None = None
@@ -63,625 +92,169 @@ class HiroMainWindow(QMainWindow):
         self.last_processor: HiroUSTProcessor | None = None
         self.analysis_summary = ""
         self.melody_synth = SimpleMelodySynth()
-        self.melody_selection: tuple[int, int] = (0, 0)
+        self.melody_selection = (0, 0)
 
         self.setWindowTitle(self.APP_NAME)
-        self.resize(1500, 920)
+        self.resize(1500, 900)
+        self._build_state_widgets()
         self._build_ui()
         self._build_actions()
         self._load_settings()
         self._set_status("Ready")
 
-    def _build_ui(self) -> None:
-        self.setStatusBar(QStatusBar(self))
+    def _build_state_widgets(self):
+        def spin(value, lo, hi):
+            w = QSpinBox(); w.setRange(lo, hi); w.setValue(value); return w
+        self.tempo = QDoubleSpinBox(); self.tempo.setRange(60,240); self.tempo.setDecimals(1); self.tempo.setValue(120)
+        self.root_key = spin(60,0,127)
+        self.scale = QComboBox(); self.scale.addItems(list(SCALES)); self.scale.setCurrentText("Major Pentatonic")
+        self.range_low = spin(48,0,127); self.range_high = spin(76,0,127)
+        self.base_length = spin(240,120,1920); self.length_var = QDoubleSpinBox(); self.length_var.setRange(0,1); self.length_var.setSingleStep(.05); self.length_var.setDecimals(2); self.length_var.setValue(.3)
+        self.stretch_prob = QDoubleSpinBox(); self.stretch_prob.setRange(0,1); self.stretch_prob.setSingleStep(.05); self.stretch_prob.setDecimals(2); self.stretch_prob.setValue(.25)
+        self.seed = spin(1234,0,2_147_483_647)
+        self.use_motifs = QCheckBox(); self.use_motifs.setChecked(True)
+        self.lyrical_mode = QCheckBox(); self.lyrical_mode.setChecked(True)
+        self.quartertone = QCheckBox(); self.output_format = QComboBox(); self.output_format.addItems(["ustx","ust"])
 
-        toolbar = self.addToolBar("Main")
-        toolbar.setMovable(False)
-
-        self.new_action = QAction("New", self)
-        self.open_action = QAction("Open", self)
-        self.save_action = QAction("Save Lyrics", self)
-        self.generate_action = QAction("Generate", self)
-        self.generate_action.setShortcut("Ctrl+Enter")
-        self.export_action = QAction("Export UST", self)
-
-        toolbar.addAction(self.new_action)
-        toolbar.addAction(self.open_action)
-        toolbar.addAction(self.save_action)
+    def _build_ui(self):
+        toolbar = self.addToolBar("Main"); toolbar.setMovable(False)
+        self._add_menu_button(toolbar, "Project", self._project_menu())
+        self._add_menu_button(toolbar, "Generation", self._generation_menu())
+        self._add_menu_button(toolbar, "Analyze", self._analysis_menu())
+        self._add_menu_button(toolbar, "View", self._view_menu())
+        self._add_menu_button(toolbar, "Debug", self._debug_menu())
         toolbar.addSeparator()
-        toolbar.addAction(self.generate_action)
-        toolbar.addAction(self.export_action)
+        self.generate_action = QAction("Generate", self); self.generate_action.setShortcut("Ctrl+Enter"); toolbar.addAction(self.generate_action)
+        self.export_action = QAction("Export UST", self); toolbar.addAction(self.export_action)
 
-        advanced = QToolButton()
-        advanced.setText("More")
-        advanced.setPopupMode(QToolButton.InstantPopup)
-        from PySide6.QtWidgets import QMenu
-        advanced_menu = QMenu(advanced)
-        self.analyze_action = QAction("Analyze Lyrics", self)
-        self.random_seed_action = QAction("Randomize Seed", self)
-        self.load_example_action = QAction("Load Example", self)
-        self.debug_action = QAction("Show Debug Structure", self)
-        advanced_menu.addAction(self.analyze_action)
-        advanced_menu.addAction(self.random_seed_action)
-        advanced_menu.addSeparator()
-        advanced_menu.addAction(self.load_example_action)
-        advanced_menu.addAction(self.debug_action)
-        advanced.setMenu(advanced_menu)
-        toolbar.addWidget(advanced)
+        central = QFrame(); central.setObjectName("panel")
+        layout = QVBoxLayout(central); layout.setContentsMargins(6,6,6,6); layout.setSpacing(4)
+        title_row = QHBoxLayout(); title = QLabel("Hiro UST"); title.setObjectName("title"); title_row.addWidget(title); title_row.addStretch()
+        self.project_edit = QLineEdit("hiro_example"); self.project_edit.setMaximumWidth(250); title_row.addWidget(self.project_edit); layout.addLayout(title_row)
+        self.melody_preview = MelodyPreviewPanel(); layout.addWidget(self.melody_preview, 1)
+        self.status_label = QLabel("Ready"); self.status_label.setObjectName("eyebrow"); layout.addWidget(self.status_label)
+        self.setCentralWidget(central)
 
-        self._build_menus()
+        self.lyrics_dock = QDockWidget("Lyrics", self); self.lyrics_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
+        lyrics = QPlainTextEdit(); lyrics.setPlainText(EXAMPLE_LYRICS); self.lyrics_edit = lyrics; self.highlighter = LyricHighlighter(lyrics.document()); self.lyrics_dock.setWidget(lyrics); self.addDockWidget(Qt.LeftDockWidgetArea, self.lyrics_dock)
+        self.lyrics_dock.setMinimumWidth(230)
 
-        root = QWidget()
-        root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(12, 12, 12, 12)
-        root_layout.setSpacing(10)
+        self.inspector_dock = QDockWidget("Inspector", self); self.inspector_dock.setAllowedAreas(Qt.RightDockWidgetArea)
+        inspector = QWidget(); il = QVBoxLayout(inspector); il.addWidget(QLabel("Selection")); self.selection_info = QLabel("No selection"); il.addWidget(self.selection_info); il.addStretch(); self.inspector_dock.setWidget(inspector); self.addDockWidget(Qt.RightDockWidgetArea, self.inspector_dock); self.inspector_dock.hide()
 
-        header = QHBoxLayout()
-        title_box = QVBoxLayout()
-        eyebrow = QLabel("GENERATIVE JAPANESE UTAU")
-        eyebrow.setObjectName("eyebrow")
-        title = QLabel("Hiro UST")
-        title.setObjectName("title")
-        subtitle = QLabel("lyrics → words → morphemes → melody → UST / USTX")
-        subtitle.setObjectName("eyebrow")
-        title_box.addWidget(eyebrow)
-        title_box.addWidget(title)
-        title_box.addWidget(subtitle)
-        header.addLayout(title_box)
-        header.addStretch()
-
-        self.project_edit = QLineEdit("Hiro_Main")
-        self.project_edit.setPlaceholderText("Project name")
-        self.project_edit.setMaximumWidth(280)
-        header.addWidget(self.project_edit)
-        root_layout.addLayout(header)
-
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
-        lyrics_panel = self._make_panel("LYRICS")
-        self.lyrics_edit = QPlainTextEdit()
-        self.lyrics_edit.setPlaceholderText(
-            "Paste Japanese lyrics here…\n\n"
-            "Section markers:\n"
-            "[Verse 1]\n"
-            "[Chorus]"
-        )
-        self.highlighter = LyricHighlighter(self.lyrics_edit.document())
-        lyrics_panel.layout().addWidget(self.lyrics_edit, 1)
-
-        analysis_panel = self._make_panel("ANALYSIS / PREVIEW")
-        self.analysis_label = QLabel("No analysis yet.")
-        self.analysis_label.setWordWrap(True)
-        analysis_panel.layout().addWidget(self.analysis_label)
-
-        self.preview_tabs = QTabWidget()
-
-        self.structure_table = QTableWidget(0, 6)
-        self.structure_table.setHorizontalHeaderLabels(
-            ["Surface", "Reading", "POS", "Unit", "Flags", "Phonemes"]
-        )
-        self.structure_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.structure_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.structure_table.horizontalHeader().setStretchLastSection(True)
-
-        self.notes_table = QTableWidget(0, 5)
-        self.notes_table.setHorizontalHeaderLabels(
-            ["#", "Lyric", "MIDI", "Length", "Position"]
-        )
-        self.notes_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.notes_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.notes_table.horizontalHeader().setStretchLastSection(True)
-
-        self.melody_preview = MelodyPreviewPanel()
         self.melody_preview.selectionChanged.connect(self._on_melody_selection_changed)
+        self.melody_preview.selectionIndicesChanged.connect(self._on_melody_indices_changed)
         self.melody_preview.play_button.clicked.connect(self._play_full_melody)
         self.melody_preview.play_selection_button.clicked.connect(self._play_selected_melody)
         self.melody_preview.stop_button.clicked.connect(self._stop_melody)
 
-        self.preview_tabs.addTab(self.structure_table, "Structure")
-        self.preview_tabs.addTab(self.melody_preview, "Melody")
-        self.preview_tabs.addTab(self.notes_table, "Notes")
-        analysis_panel.layout().addWidget(self.preview_tabs, 1)
+    def _add_menu_button(self, toolbar, text, menu):
+        button = QToolButton(); button.setText(text); button.setPopupMode(QToolButton.InstantPopup); button.setMenu(menu); toolbar.addWidget(button)
 
-        settings_panel = self._make_panel("INSPECTOR")
+    def _project_menu(self):
+        m = QMenu(self); a=QAction("New",self); a.triggered.connect(self.new_document); m.addAction(a); a=QAction("Open Lyrics",self); a.triggered.connect(self.open_lyrics); m.addAction(a); a=QAction("Save Lyrics",self); a.triggered.connect(self.save_lyrics); m.addAction(a); m.addSeparator(); a=QAction("Export UST",self); a.triggered.connect(self.export_project); m.addAction(a); return m
+    def _generation_menu(self):
+        m=QMenu(self); a=QAction("Generate",self); a.triggered.connect(self.generate); m.addAction(a); a=QAction("Generation Settings…",self); a.triggered.connect(self.open_generation_settings); m.addAction(a); a=QAction("Randomize Seed",self); a.triggered.connect(self.randomize_seed); m.addAction(a); return m
+    def _analysis_menu(self):
+        m=QMenu(self); a=QAction("Analyze Lyrics",self); a.triggered.connect(self.analyze_lyrics); m.addAction(a); a=QAction("Show Structure…",self); a.triggered.connect(self.show_structure); m.addAction(a); return m
+    def _view_menu(self):
+        m=QMenu(self); self.toggle_lyrics_action=self.lyrics_dock.toggleViewAction(); self.toggle_lyrics_action.setText("Lyrics Drawer"); m.addAction(self.toggle_lyrics_action); self.toggle_inspector_action=self.inspector_dock.toggleViewAction(); self.toggle_inspector_action.setText("Inspector"); m.addAction(self.toggle_inspector_action); return m
+    def _debug_menu(self):
+        m=QMenu(self); a=QAction("Load Example",self); a.triggered.connect(self.load_example); m.addAction(a); a=QAction("Debug Structure JSON",self); a.triggered.connect(self.show_debug_structure); m.addAction(a); return m
 
-        inspector_tabs = QTabWidget()
-        inspector_tabs.setObjectName("inspector")
+    def _build_actions(self):
+        self.generate_action.triggered.connect(self.generate); self.export_action.triggered.connect(self.export_project)
 
-        song_tab = QWidget()
-        song_form = QFormLayout(song_tab)
-        song_form.setContentsMargins(4, 4, 4, 4)
-
-        self.tempo = QDoubleSpinBox()
-        self.tempo.setRange(HiroConfig.MIN_TEMPO, HiroConfig.MAX_TEMPO)
-        self.tempo.setDecimals(1)
-        self.tempo.setSuffix(" BPM")
-        self.tempo.setValue(120.0)
-
-        self.root_key = QSpinBox()
-        self.root_key.setRange(0, 127)
-        self.root_key.setValue(60)
-
-        self.scale = QComboBox()
-        self.scale.addItems(list(SCALES))
-        self.scale.setCurrentText("Major Pentatonic")
-
-        self.base_length = QSpinBox()
-        self.base_length.setRange(HiroConfig.MIN_NOTE_LEN, HiroConfig.MAX_NOTE_LEN)
-        self.base_length.setSingleStep(60)
-        self.base_length.setSuffix(" ticks")
-        self.base_length.setValue(240)
-
-        self.output_format = QComboBox()
-        self.output_format.addItems(["ustx", "ust"])
-
-        song_form.addRow("Tempo", self.tempo)
-        song_form.addRow("Root", self.root_key)
-        song_form.addRow("Scale", self.scale)
-        song_form.addRow("Base length", self.base_length)
-        song_form.addRow("Output", self.output_format)
-
-        melody_tab = QWidget()
-        melody_form = QFormLayout(melody_tab)
-        melody_form.setContentsMargins(4, 4, 4, 4)
-
-        self.length_var = QDoubleSpinBox()
-        self.length_var.setRange(0.0, 1.0)
-        self.length_var.setSingleStep(0.05)
-        self.length_var.setDecimals(2)
-        self.length_var.setValue(0.30)
-
-        self.stretch_prob = QDoubleSpinBox()
-        self.stretch_prob.setRange(0.0, 1.0)
-        self.stretch_prob.setSingleStep(0.05)
-        self.stretch_prob.setDecimals(2)
-        self.stretch_prob.setValue(0.25)
-
-        self.seed = QSpinBox()
-        self.seed.setRange(0, 2_147_483_647)
-        self.seed.setValue(1234)
-
-        self.use_motifs = QCheckBox("Use motifs")
-        self.use_motifs.setChecked(True)
-        self.lyrical_mode = QCheckBox("Phrase-aware melody")
-        self.lyrical_mode.setChecked(True)
-
-        melody_form.addRow("Length variation", self.length_var)
-        melody_form.addRow("Stretch probability", self.stretch_prob)
-        melody_form.addRow("Seed", self.seed)
-        melody_form.addRow(self.use_motifs)
-        melody_form.addRow(self.lyrical_mode)
-
-        expression_tab = QWidget()
-        expression_form = QFormLayout(expression_tab)
-        expression_form.setContentsMargins(4, 4, 4, 4)
-        self.quartertone = QCheckBox("Quarter-tone expression")
-        expression_form.addRow(self.quartertone)
-        expression_form.addRow(QLabel(
-            "Expression controls will grow here as the editor gains "
-            "note-level and phrase-level editing."
-        ))
-
-        inspector_tabs.addTab(song_tab, "Song")
-        inspector_tabs.addTab(melody_tab, "Melody")
-        inspector_tabs.addTab(expression_tab, "Expression")
-        settings_panel.layout().addWidget(inspector_tabs, 1)
-
-        splitter.addWidget(lyrics_panel)
-        splitter.addWidget(analysis_panel)
-        splitter.addWidget(settings_panel)
-        splitter.setSizes([520, 700, 320])
-        root_layout.addWidget(splitter, 1)
-
-        footer = QHBoxLayout()
-        self.progress_label = QLabel("Ready")
-        self.progress_label.setObjectName("eyebrow")
-        self.export_path_label = QLabel("")
-        self.export_path_label.setObjectName("eyebrow")
-        footer.addWidget(self.progress_label)
-        footer.addStretch()
-        footer.addWidget(self.export_path_label)
-        root_layout.addLayout(footer)
-
-        self.setCentralWidget(root)
-
-    def _make_panel(self, title_text: str) -> QFrame:
-        panel = QFrame()
-        panel.setObjectName("panel")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        title = QLabel(title_text)
-        title.setObjectName("section")
-        layout.addWidget(title)
-        return panel
-
-    def _build_menus(self) -> None:
-        bar = self.menuBar()
-
-        project = bar.addMenu("Project")
-        project.addAction(self.new_action)
-        project.addAction(self.open_action)
-        project.addAction(self.save_action)
-        project.addSeparator()
-        project.addAction(self.export_action)
-
-        generation = bar.addMenu("Generation")
-        generation.addAction(self.generate_action)
-        generation.addAction(self.random_seed_action)
-
-        analysis = bar.addMenu("Analyze")
-        analysis.addAction(self.analyze_action)
-        analysis.addAction(self.debug_action)
-
-        debug_menu = bar.addMenu("Debug")
-        debug_menu.addAction(self.load_example_action)
-        debug_menu.addAction(self.debug_action)
-
-    def _build_actions(self) -> None:
-        self.new_action.triggered.connect(self.new_document)
-        self.open_action.triggered.connect(self.open_lyrics)
-        self.save_action.triggered.connect(self.save_lyrics)
-        self.generate_action.triggered.connect(self.generate)
-        self.export_action.triggered.connect(self.export_project)
-        self.analyze_action.triggered.connect(self.analyze_lyrics)
-        self.random_seed_action.triggered.connect(self.randomize_seed)
-        self.load_example_action.triggered.connect(self.load_example)
-        self.debug_action.triggered.connect(self.show_debug_structure)
-
-    def _build_config(self) -> GeneratorConfig:
+    def _build_config(self):
         return GeneratorConfig(
-            tempo=self.tempo.value(),
-            base_length=self.base_length.value(),
-            root_key=self.root_key.value(),
-            scale=self.scale.currentText(),
-            length_var=self.length_var.value(),
-            stretch_prob=self.stretch_prob.value(),
-            seed=self.seed.value(),
-            use_motifs=self.use_motifs.isChecked(),
-            quartertone_mode=self.quartertone.isChecked(),
-            lyrical_mode=self.lyrical_mode.isChecked(),
+            tempo=self.tempo.value(), base_length=self.base_length.value(), root_key=self.root_key.value(),
+            range_low=self.range_low.value(), range_high=self.range_high.value(), scale=self.scale.currentText(),
+            length_var=self.length_var.value(), stretch_prob=self.stretch_prob.value(), seed=self.seed.value(),
+            use_motifs=self.use_motifs.isChecked(), quartertone_mode=self.quartertone.isChecked(), lyrical_mode=self.lyrical_mode.isChecked(),
         )
 
-    def _make_processor(self) -> HiroUSTProcessor:
-        processor = HiroUSTProcessor(self._build_config())
-        self.last_processor = processor
-        return processor
+    def _make_processor(self):
+        self.last_processor = HiroUSTProcessor(self._build_config()); return self.last_processor
 
-    def analyze_lyrics(self) -> bool:
-        lyrics = self.lyrics_edit.toPlainText().strip()
-        if not lyrics:
-            QMessageBox.warning(self, self.APP_NAME, "Enter lyrics before analyzing.")
-            return False
+    def open_generation_settings(self):
+        dialog=GenerationDialog(self)
+        if dialog.exec(): dialog.apply(self); self._set_status("Generation settings updated")
 
+    def analyze_lyrics(self):
+        lyrics=self.lyrics_edit.toPlainText().strip()
+        if not lyrics: QMessageBox.warning(self,self.APP_NAME,"Enter lyrics before analyzing."); return False
         try:
-            processor = self._make_processor()
-            doc = processor.lyric_parser.parse(lyrics, processor.phonemizer)
-            self._populate_structure(doc)
-            self.analysis_summary = (
-                f"Backend: {doc.analyzer_backend} · "
-                f"Sections: {len(doc.sections)} · Words: {doc.word_count} · "
-                f"Morphemes: {doc.morpheme_count} · Kanji morphemes: {doc.kanji_word_count}"
-            )
-            self.analysis_label.setText(self.analysis_summary)
-            self.preview_tabs.setCurrentWidget(self.structure_table)
-            self._set_status("Analysis complete")
-            return True
+            p=self._make_processor(); doc=p.lyric_parser.parse(lyrics,p.phonemizer)
+            self.analysis_summary=f"{doc.analyzer_backend} · {doc.word_count} units · {doc.morpheme_count} tokens · {doc.kanji_word_count} Kanji units"
+            self._set_status("Analysis complete"); return True
         except Exception as exc:
-            self._set_status("Analysis failed")
-            QMessageBox.critical(self, self.APP_NAME, f"{type(exc).__name__}: {exc}")
-            return False
+            QMessageBox.critical(self,self.APP_NAME,f"{type(exc).__name__}: {exc}"); return False
 
-    def _populate_structure(self, doc) -> None:
-        self.structure_table.setRowCount(0)
+    def generate(self):
+        lyrics=self.lyrics_edit.toPlainText().strip()
+        if not lyrics: QMessageBox.warning(self,self.APP_NAME,"Enter lyrics before generating."); return
+        try:
+            self._set_status("Generating…"); self.analyze_lyrics(); p=self._make_processor(); self.last_output_format=self.output_format.currentText(); self.last_output=p.process_lyrics(lyrics, project_name=self.project_edit.text().strip() or "Hiro_Main", output_format=self.last_output_format); self.melody_preview.set_notes(notes_from_output(self.last_output,self.last_output_format)); self._set_status(f"Generated · {len(self.melody_preview.piano_roll.notes)} notes")
+        except Exception as exc:
+            QMessageBox.critical(self,self.APP_NAME,f"{type(exc).__name__}: {exc}")
+
+    def show_structure(self):
+        if not self.analyze_lyrics(): return
+        p=self.last_processor; doc=p.lyric_parser.parse(self.lyrics_edit.toPlainText().strip(), p.phonemizer)
+        table=QTableWidget(0,6); table.setHorizontalHeaderLabels(["Surface","Reading","POS","Unit","Flags","Phonemes"]); table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         for section in doc.sections:
             for line in section.lines:
                 for word in line.words:
-                    for morpheme in word.morphemes:
-                        row = self.structure_table.rowCount()
-                        self.structure_table.insertRow(row)
-                        flags = []
-                        if morpheme.is_kanji:
-                            flags.append("KANJI")
-                        elif morpheme.token.kana:
-                            flags.append("KANA")
-                        if morpheme.is_punctuation:
-                            flags.append("PUNCT")
-                        values = [
-                            morpheme.surface,
-                            morpheme.reading or "—",
-                            morpheme.pos or "—",
-                            word.text,
-                            ", ".join(flags) or "—",
-                            " ".join(morpheme.phonemes) or "—",
-                        ]
-                        for column, value in enumerate(values):
-                            self.structure_table.setItem(row, column, QTableWidgetItem(value))
+                    row=table.rowCount(); table.insertRow(row)
+                    values=[word.text,word.reading,"/".join(m.pos for m in word.morphemes if m.pos) or "—",word.text,"KANJI" if word.kanji_count else "KANA"," ".join(word.phonemes) or "—"]
+                    for c,v in enumerate(values): table.setItem(row,c,QTableWidgetItem(v))
+        dialog=QDialog(self); dialog.setWindowTitle("Japanese Structure"); dialog.resize(1000,650); lay=QVBoxLayout(dialog); lay.addWidget(table); dialog.exec()
 
-    def generate(self) -> None:
-        lyrics = self.lyrics_edit.toPlainText().strip()
-        if not lyrics:
-            QMessageBox.warning(self, self.APP_NAME, "Enter lyrics before generating.")
-            return
+    def show_debug_structure(self):
+        if not self.analyze_lyrics(): return
+        p=self.last_processor; doc=p.lyric_parser.parse(self.lyrics_edit.toPlainText().strip(), p.phonemizer)
+        payload={"backend":doc.analyzer_backend,"sections":[{"name":s.name,"lines":[{"text":l.text,"words":[{"surface":w.text,"reading":w.reading,"morphemes":[{"surface":m.surface,"reading":m.reading,"pos":m.pos,"phonemes":m.phonemes} for m in w.morphemes]} for w in l.words]} for l in s.lines]} for s in doc.sections]}
+        dialog=QDialog(self); dialog.setWindowTitle("Debug Structure"); dialog.resize(1000,700); lay=QVBoxLayout(dialog); edit=QPlainTextEdit(); edit.setReadOnly(True); edit.setPlainText(json.dumps(payload,ensure_ascii=False,indent=2)); lay.addWidget(edit); dialog.exec()
 
-        self._set_status("Generating…")
-        self.generate_action.setEnabled(False)
-        QApplication.processEvents()
+    def new_document(self): self.lyrics_edit.clear(); self.project_edit.setText("Hiro_Main"); self.last_output=""; self.melody_preview.set_notes([])
+    def load_example(self): self.lyrics_edit.setPlainText(EXAMPLE_LYRICS); self.project_edit.setText("hiro_example"); self._set_status("Example loaded")
+    def randomize_seed(self): self.seed.setValue(random.randint(0,2_147_483_647)); self._set_status(f"Seed: {self.seed.value()}")
 
-        try:
-            if not self.analyze_lyrics():
-                return
-            processor = self._make_processor()
-            output_format = self.output_format.currentText()
-            self.last_output = processor.process_lyrics(
-                lyrics,
-                project_name=self.project_edit.text().strip() or "Hiro_Main",
-                output_format=output_format,
-            )
-            self.last_output_format = output_format
-            self._refresh_notes_preview(self.last_output)
-            self.preview_tabs.setCurrentWidget(self.melody_preview)
-            self._set_status("Generation complete")
-        except Exception as exc:
-            self._set_status("Generation failed")
-            QMessageBox.critical(self, self.APP_NAME, f"{type(exc).__name__}: {exc}")
-        finally:
-            self.generate_action.setEnabled(True)
+    def open_lyrics(self):
+        path,_=QFileDialog.getOpenFileName(self,"Open lyrics",str(Path.cwd()),"Text files (*.txt *.md *.lyrics);;All files (*)")
+        if path: self.lyrics_edit.setPlainText(Path(path).read_text(encoding="utf-8")); self.project_edit.setText(Path(path).stem)
+    def save_lyrics(self):
+        path,_=QFileDialog.getSaveFileName(self,"Save lyrics",str(Path.cwd()/"lyrics.txt"),"Text files (*.txt);;All files (*)")
+        if path: Path(path).write_text(self.lyrics_edit.toPlainText(),encoding="utf-8")
+    def export_project(self):
+        if not self.last_output: self.generate()
+        if not self.last_output: return
+        suffix=self.last_output_format; path,_=QFileDialog.getSaveFileName(self,"Export project",str(Path.cwd()/f"{self.project_edit.text().strip() or 'Hiro_Main'}.{suffix}"),f"{suffix.upper()} (*.{suffix})")
+        if path: Path(path).write_text(self.last_output,encoding="utf-8"); self._set_status(f"Exported {Path(path).name}")
 
-    def _refresh_notes_preview(self, output: str) -> None:
-        notes = notes_from_output(output, self.last_output_format)
-        self.melody_preview.set_notes(notes)
+    def _on_melody_selection_changed(self,start,end):
+        self.melody_selection=(start,end); self.selection_info.setText(f"{start}–{end} ticks")
+        self._set_status(f"Selection: {start}–{end}" if end>start else "No selection")
+    def _on_melody_indices_changed(self,indices): self.selection_info.setText(f"{len(indices or [])} note(s)") if indices else self.selection_info.setText("No selection")
+    def _play_full_melody(self):
+        try: self.melody_synth.play(self.melody_preview.piano_roll.notes,self.tempo.value()); self._set_status("Playing melody")
+        except Exception as exc: QMessageBox.warning(self,self.APP_NAME,str(exc))
+    def _play_selected_melody(self):
+        notes=self.melody_preview.piano_roll.selected_notes()
+        if not notes: return
+        try: self.melody_synth.play(notes,self.tempo.value(),self.melody_selection); self._set_status("Playing selection")
+        except Exception as exc: QMessageBox.warning(self,self.APP_NAME,str(exc))
+    def _stop_melody(self): self.melody_synth.stop(); self._set_status("Stopped")
+    def _set_status(self,text): self.status_label.setText(f"{self.analysis_summary} · {text}" if self.analysis_summary else text)
 
-        self.notes_table.setRowCount(0)
-        for index, note in enumerate(notes[:500], 1):
-            row = self.notes_table.rowCount()
-            self.notes_table.insertRow(row)
-            values = [
-                str(index),
-                note.lyric,
-                str(note.tone),
-                str(note.duration),
-                str(note.position),
-            ]
-            for column, value in enumerate(values):
-                self.notes_table.setItem(row, column, QTableWidgetItem(value))
-
-        generated = f" · Generated notes: {len(notes)}"
-        self.analysis_label.setText(f"{self.analysis_summary}{generated}")
-
-    def _on_melody_selection_changed(self, start: int, end: int) -> None:
-        self.melody_selection = (start, end)
-        if end > start:
-            self._set_status(f"Melody range selected: {start}–{end} ticks")
-        elif self.last_output:
-            self._set_status("Melody preview ready")
-
-    def _play_full_melody(self) -> None:
-        notes = self.melody_preview.piano_roll.notes
-        if not notes:
-            return
-        try:
-            self.melody_synth.play(notes, self.tempo.value())
-            self._set_status("Playing melody preview")
-        except Exception as exc:
-            QMessageBox.warning(self, self.APP_NAME, f"Audio preview unavailable: {exc}")
-
-    def _stop_melody(self) -> None:
-        self.melody_synth.stop()
-        self._set_status("Melody preview stopped")
-
-    def _play_selected_melody(self) -> None:
-        notes = self.melody_preview.piano_roll.selected_notes()
-        if not notes:
-            return
-        start, end = self.melody_selection
-        try:
-            self.melody_synth.play(notes, self.tempo.value(), (start, end))
-            self._set_status(f"Playing selected melody range: {start}–{end}")
-        except Exception as exc:
-            QMessageBox.warning(self, self.APP_NAME, f"Audio preview unavailable: {exc}")
-
-    def show_debug_structure(self) -> None:
-        if not self.analyze_lyrics():
-            return
-
-        processor = self.last_processor
-        if processor is None:
-            return
-        doc = processor.lyric_parser.parse(
-            self.lyrics_edit.toPlainText().strip(),
-            processor.phonemizer,
-        )
-
-        payload = {
-            "backend": doc.analyzer_backend,
-            "sections": [
-                {
-                    "name": section.name,
-                    "lines": [
-                        {
-                            "text": line.text,
-                            "words": [
-                                {
-                                    "surface": word.text,
-                                    "reading": word.reading,
-                                    "structure": word.structure,
-                                    "morphemes": [
-                                        {
-                                            "surface": m.surface,
-                                            "reading": m.reading,
-                                            "lemma": m.token.lemma,
-                                            "normalized": m.token.normalized,
-                                            "pos": m.pos,
-                                            "phonemes": m.phonemes,
-                                            "kanji": m.is_kanji,
-                                        }
-                                        for m in word.morphemes
-                                    ],
-                                }
-                                for word in line.words
-                            ],
-                        }
-                        for line in section.lines
-                    ],
-                }
-                for section in doc.sections
-            ],
-        }
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Hiro UST — Debug Structure")
-        dialog.resize(1000, 700)
-        layout = QVBoxLayout(dialog)
-        debug_edit = QPlainTextEdit()
-        debug_edit.setReadOnly(True)
-        debug_edit.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
-        layout.addWidget(debug_edit)
-        dialog.exec()
-
-    def randomize_seed(self) -> None:
-        self.seed.setValue(random.randint(0, 2_147_483_647))
-        self._set_status(f"Seed: {self.seed.value()}")
-
-    def load_example(self) -> None:
-        self.current_file = None
-        self.last_output = ""
-        self.project_edit.setText("hiro_example")
-        self.lyrics_edit.setPlainText(EXAMPLE_LYRICS)
-        self.notes_table.setRowCount(0)
-        self.structure_table.setRowCount(0)
-        self.melody_preview.set_notes([])
-        self.analysis_summary = ""
-        self.analysis_label.setText("Example loaded. Analyze or Generate.")
-        self._set_status("Example lyrics loaded")
-
-    def new_document(self) -> None:
-        self.current_file = None
-        self.last_output = ""
-        self.project_edit.setText("Hiro_Main")
-        self.lyrics_edit.clear()
-        self.notes_table.setRowCount(0)
-        self.structure_table.setRowCount(0)
-        self.melody_preview.set_notes([])
-        self.analysis_summary = ""
-        self.analysis_label.setText("No analysis yet.")
-        self.export_path_label.clear()
-        self._set_status("New document")
-
-    def open_lyrics(self) -> None:
-        start_dir = str(self.current_file.parent) if self.current_file else str(Path.cwd())
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open lyrics", start_dir,
-            "Text files (*.txt *.md *.lyrics);;All files (*)"
-        )
-        if not path:
-            return
-        file_path = Path(path)
-        self.lyrics_edit.setPlainText(file_path.read_text(encoding="utf-8"))
-        self.current_file = file_path
-        self.project_edit.setText(file_path.stem)
-        self._set_status(f"Opened {file_path.name}")
-
-    def save_lyrics(self) -> None:
-        default = self.current_file or (
-            Path.cwd() / f"{self.project_edit.text().strip() or 'Hiro_Main'}.txt"
-        )
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save lyrics", str(default),
-            "Text files (*.txt);;Markdown (*.md);;All files (*)"
-        )
-        if not path:
-            return
-        file_path = Path(path)
-        file_path.write_text(self.lyrics_edit.toPlainText(), encoding="utf-8")
-        self.current_file = file_path
-        self._set_status(f"Saved {file_path.name}")
-
-    def export_project(self) -> None:
-        if not self.last_output:
-            self.generate()
-            if not self.last_output:
-                return
-
-        suffix = self.last_output_format
-        default = Path.cwd() / f"{self.project_edit.text().strip() or 'Hiro_Main'}.{suffix}"
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export UST project", str(default),
-            f"{suffix.upper()} files (*.{suffix});;All files (*)"
-        )
-        if not path:
-            return
-        file_path = Path(path)
-        file_path.write_text(self.last_output, encoding="utf-8")
-        self.export_path_label.setText(str(file_path))
-        self._set_status(f"Exported {file_path.name}")
-
-    def _load_settings(self) -> None:
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-
-        numeric_widgets = (
-            (self.tempo, "tempo"),
-            (self.root_key, "root"),
-            (self.base_length, "base_length"),
-            (self.length_var, "length_var"),
-            (self.stretch_prob, "stretch_prob"),
-            (self.seed, "seed"),
-        )
-        for widget, key in numeric_widgets:
-            value = self.settings.value(key)
-            if value is not None:
-                widget.setValue(
-                    float(value) if isinstance(widget, QDoubleSpinBox) else int(value)
-                )
-
-        for widget, key in ((self.scale, "scale"), (self.output_format, "output")):
-            value = self.settings.value(key)
-            if value:
-                widget.setCurrentText(str(value))
-
-        for widget, key in (
-            (self.use_motifs, "motifs"),
-            (self.quartertone, "quartertone"),
-            (self.lyrical_mode, "lyrical"),
-        ):
-            value = self.settings.value(key)
-            if value is not None:
-                widget.setChecked(str(value).lower() in {"1", "true", "yes"})
-
-        if not self.lyrics_edit.toPlainText().strip():
-            self.load_example()
-
-    def closeEvent(self, event) -> None:
-        self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("tempo", self.tempo.value())
-        self.settings.setValue("root", self.root_key.value())
-        self.settings.setValue("scale", self.scale.currentText())
-        self.settings.setValue("base_length", self.base_length.value())
-        self.settings.setValue("length_var", self.length_var.value())
-        self.settings.setValue("stretch_prob", self.stretch_prob.value())
-        self.settings.setValue("seed", self.seed.value())
-        self.settings.setValue("output", self.output_format.currentText())
-        self.settings.setValue("motifs", self.use_motifs.isChecked())
-        self.settings.setValue("quartertone", self.quartertone.isChecked())
-        self.settings.setValue("lyrical", self.lyrical_mode.isChecked())
-        super().closeEvent(event)
-
-    def _set_status(self, message: str) -> None:
-        self.progress_label.setText(message)
-        self.statusBar().showMessage(message)
+    def _load_settings(self):
+        if not self.lyrics_edit.toPlainText().strip(): self.load_example()
+    def closeEvent(self,event): super().closeEvent(event)
 
 
 def run_app(argv: list[str] | None = None) -> int:
-    args = argv if argv is not None else sys.argv
-    app = QApplication.instance() or QApplication(args)
-    apply_theme(app)
-    window = HiroMainWindow()
-    window.show()
-    return app.exec()
+    args=argv if argv is not None else sys.argv
+    app=QApplication.instance() or QApplication(args); apply_theme(app); window=HiroMainWindow(); window.show(); return app.exec()
 
 
-__all__ = ["HiroMainWindow", "run_app"]
+__all__=["HiroMainWindow","run_app"]

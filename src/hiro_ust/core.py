@@ -13,7 +13,7 @@ from .melody.phrase_engine import PhraseMelodyEngine
 
 
 class HiroUSTProcessor:
-    """Single high-level pipeline: parse -> phonemize -> phrase melody -> serialize."""
+    """Parse -> furigana -> phonemize -> phrase melody -> serialize."""
 
     def __init__(self, config: GeneratorConfig | None = None):
         self.config = config or GeneratorConfig()
@@ -26,39 +26,32 @@ class HiroUSTProcessor:
         if output_format not in {"ust", "ustx"}:
             raise ValueError("output_format must be 'ust' or 'ustx'")
         doc = self.lyric_parser.parse(lyrics, self.phonemizer)
-
         writer = USTWriter(project_name, self.config.tempo) if output_format == "ust" else USTXWriter(project_name, self.config.tempo)
         rng = random.Random(self.config.seed + 17)
 
         for section_index, section in enumerate(doc.sections):
             if section_index:
                 writer.add_rest(self.config.base_length * 2)
-
             for line_index, line in enumerate(section.lines):
                 if line_index or section_index:
                     writer.add_rest(self.config.base_length)
-
                 for word_index, word in enumerate(line.words):
                     if word_index:
                         writer.add_rest(max(HiroConfig.MIN_NOTE_LEN, self.config.base_length // 2))
-
                     phonemes = [p for p in word.phonemes if p not in "。、！？,，…"]
                     if not phonemes:
                         continue
-
-                    low = max(21, self.config.effective_root_key - 18)
-                    high = min(108, self.config.effective_root_key + 18)
-                    plan_len = max(2, len(phonemes))
-                    register = self.config.effective_root_key + rng.randint(-4, 4)
-                    plan = self.melody.plan_phrase(plan_len, register)
+                    plan = self.melody.plan_phrase(
+                        max(2, len(phonemes)),
+                        int((self.config.range_low + self.config.range_high) / 2),
+                    )
                     pitches = self.melody.render_phrase(
                         plan,
                         root=self.config.effective_root_key,
                         scale=SCALES[self.config.scale],
-                        low=low,
-                        high=high,
+                        low=self.config.range_low,
+                        high=self.config.range_high,
                     )
-
                     for phoneme, pitch in zip(phonemes, pitches):
                         length = self._note_length(phoneme, rng)
                         if phoneme == "っ":
@@ -85,13 +78,6 @@ class HiroUSTProcessor:
 
     def get_supported_scales(self) -> list[str]:
         return list(SCALES)
-
-    def get_supported_envelopes(self) -> list[str]:
-        try:
-            from .voice.presets import ENVELOPE_PRESETS
-            return list(ENVELOPE_PRESETS)
-        except ImportError:
-            return []
 
 
 __all__ = ["HiroUSTProcessor", "GeneratorConfig"]

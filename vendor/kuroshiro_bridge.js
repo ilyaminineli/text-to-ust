@@ -4,20 +4,32 @@
 const fs = require("fs");
 const path = require("path");
 
+function resolveExport(value) {
+  if (typeof value === "function") return value;
+  if (value && typeof value.default === "function") return value.default;
+  return null;
+}
+
 async function main() {
   const input = fs.readFileSync(0, "utf8");
-  const payload = JSON.parse(input || '""');
-  const texts = Array.isArray(payload) ? payload : [payload];
+  const payload = JSON.parse(input || "[]");
+  const texts = Array.isArray(payload) ? payload.map(String) : [String(payload || "")];
 
-  const Analyzer = require(path.join(__dirname, "kuroshiro-analyzer-kuromoji.min.js"));
+  const Kuroshiro = resolveExport(require(path.join(__dirname, "kuroshiro.min.js")));
+  const Analyzer = resolveExport(require(path.join(__dirname, "kuroshiro-analyzer-kuromoji.min.js")));
+  if (!Kuroshiro || !Analyzer) throw new Error("Kuroshiro/Kuromoji vendor exports are unavailable.");
+
   const dictPath = path.join(__dirname, "kuromoji", "dict");
+  const kuroshiro = new Kuroshiro();
   const analyzer = new Analyzer({ dictPath });
-  await analyzer.init();
+  await kuroshiro.init(analyzer);
 
   const result = [];
-  for (const value of texts) {
-    const raw = await analyzer.parse(String(value || ""));
-    result.push(raw.map((token) => ({
+  for (const text of texts) {
+    const reading = await kuroshiro.convert(text, { to: "hiragana", mode: "normal" });
+    const furigana = await kuroshiro.convert(text, { to: "hiragana", mode: "furigana" });
+    const raw = await analyzer.parse(text);
+    const tokens = raw.map((token) => ({
       surface: token.surface_form || "",
       reading: token.reading || "",
       pronunciation: token.pronunciation || "",
@@ -29,10 +41,11 @@ async function main() {
         token.pos_detail_3 || ""
       ].filter(Boolean).join("/"),
       word_position: Number(token.word_position || 1)
-    })));
+    }));
+    result.push({ text, reading: String(reading || ""), furigana: String(furigana || ""), tokens });
   }
 
-  process.stdout.write(JSON.stringify(Array.isArray(payload) ? result : result[0]));
+  process.stdout.write(JSON.stringify(result));
 }
 
 main().catch((error) => {
