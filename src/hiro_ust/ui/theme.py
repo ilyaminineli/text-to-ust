@@ -1,18 +1,31 @@
 """Compact monochrome Qt theme."""
+
 from __future__ import annotations
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 PALETTE = {
-    "bg": "#101010", "surface": "#171717", "surface2": "#202020",
-    "border": "#303030", "text": "#f2efe5", "muted": "#898989",
-    "accent": "#f2efe5", "accent_text": "#101010",
+    "bg": "#101010",
+    "surface": "#171717",
+    "surface2": "#202020",
+    "border": "#303030",
+    "text": "#f2efe5",
+    "muted": "#898989",
+    "accent": "#f2efe5",
+    "accent_text": "#101010",
 }
 
 
 def choose_font() -> str:
     families = set(QFontDatabase.families())
-    for name in ("Noto Sans CJK JP", "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo", "Segoe UI"):
+    for name in (
+        "Noto Sans CJK JP",
+        "Yu Gothic UI",
+        "Yu Gothic",
+        "Meiryo UI",
+        "Meiryo",
+        "Segoe UI",
+    ):
         if name in families:
             return name
     return QApplication.font().family()

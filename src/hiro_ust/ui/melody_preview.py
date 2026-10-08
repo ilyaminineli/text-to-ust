@@ -1,4 +1,5 @@
 """Piano-roll editor for the generated melody."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,7 +15,15 @@ import wave
 import numpy as np
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal, QUrl
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:
     from PySide6.QtMultimedia import QSoundEffect
@@ -39,6 +48,7 @@ def notes_from_output(output: str, output_format: str) -> list[PreviewNote]:
         return []
     if output_format == "ustx":
         import yaml
+
         try:
             parsed = yaml.safe_load(output) or {}
             parts = parsed.get("voice_parts", [])
@@ -137,8 +147,12 @@ class PianoRollWidget(QFrame):
 
     def _content_size(self) -> QSize:
         return QSize(
-            self.left_margin + int(max(480, self._total_duration()) * self.pixels_per_tick) + 20,
-            self.top_margin + (self.max_tone - self.min_tone + 1) * self.row_height + 24,
+            self.left_margin
+            + int(max(480, self._total_duration()) * self.pixels_per_tick)
+            + 20,
+            self.top_margin
+            + (self.max_tone - self.min_tone + 1) * self.row_height
+            + 24,
         )
 
     def _update_size(self) -> None:
@@ -166,17 +180,25 @@ class PianoRollWidget(QFrame):
         return None
 
     def _indices_in_rect(self, rect: QRect) -> set[int]:
-        return {i for i in range(len(self.notes)) if rect.intersects(self._note_rect(i))}
+        return {
+            i for i in range(len(self.notes)) if rect.intersects(self._note_rect(i))
+        }
 
     def selected_notes(self) -> list[PreviewNote]:
-        return [self.notes[i] for i in sorted(self._selected) if 0 <= i < len(self.notes)]
+        return [
+            self.notes[i] for i in sorted(self._selected) if 0 <= i < len(self.notes)
+        ]
 
     def selection_indices(self) -> list[int]:
         return sorted(self._selected)
 
     def selection_range(self) -> tuple[int, int]:
         selected = self.selected_notes()
-        return (min(n.position for n in selected), max(n.end for n in selected)) if selected else (0, 0)
+        return (
+            (min(n.position for n in selected), max(n.end for n in selected))
+            if selected
+            else (0, 0)
+        )
 
     def clear_selection(self) -> None:
         self._selected.clear()
@@ -226,7 +248,11 @@ class PianoRollWidget(QFrame):
             if self._dragging:
                 rect = QRect(self._drag_origin, current).normalized()
                 chosen = self._indices_in_rect(rect)
-                self._selected = self._selection_base | chosen if event.modifiers() & Qt.ControlModifier else chosen
+                self._selected = (
+                    self._selection_base | chosen
+                    if event.modifiers() & Qt.ControlModifier
+                    else chosen
+                )
                 self._emit_selection()
                 self.update()
         super().mouseMoveEvent(event)
@@ -257,11 +283,22 @@ class PianoRollWidget(QFrame):
         painter.fillRect(self.rect(), pal.base().color())
         total = max(480, self._total_duration())
         x_end = self.left_margin + int(total * self.pixels_per_tick) + 12
-        y_bottom = self.top_margin + (self.max_tone - self.min_tone + 1) * self.row_height
+        y_bottom = (
+            self.top_margin + (self.max_tone - self.min_tone + 1) * self.row_height
+        )
 
         for tone in range(self.min_tone, self.max_tone + 1):
             y = self.top_margin + (self.max_tone - tone) * self.row_height
-            painter.setPen(QPen(pal.placeholderText().color() if tone % 12 == 0 else pal.mid().color(), 1))
+            painter.setPen(
+                QPen(
+                    (
+                        pal.placeholderText().color()
+                        if tone % 12 == 0
+                        else pal.mid().color()
+                    ),
+                    1,
+                )
+            )
             painter.drawLine(self.left_margin, y, x_end, y)
             if tone % 12 == 0:
                 painter.drawText(3, y + self.row_height - 3, self._midi_name(tone))
@@ -285,11 +322,28 @@ class PianoRollWidget(QFrame):
         for index, note in enumerate(self.notes):
             rect = self._note_rect(index)
             selected = index in self._selected
-            painter.fillRect(rect, pal.highlight().color() if selected else pal.alternateBase().color())
-            painter.setPen(QPen(pal.highlightedText().color() if selected else pal.placeholderText().color(), 1))
+            painter.fillRect(
+                rect,
+                pal.highlight().color() if selected else pal.alternateBase().color(),
+            )
+            painter.setPen(
+                QPen(
+                    (
+                        pal.highlightedText().color()
+                        if selected
+                        else pal.placeholderText().color()
+                    ),
+                    1,
+                )
+            )
             painter.drawRect(rect)
-            if rect.width() >= 28 and metrics.horizontalAdvance(note.lyric) + 8 <= rect.width():
-                painter.setPen(pal.highlightedText().color() if selected else pal.text().color())
+            if (
+                rect.width() >= 28
+                and metrics.horizontalAdvance(note.lyric) + 8 <= rect.width()
+            ):
+                painter.setPen(
+                    pal.highlightedText().color() if selected else pal.text().color()
+                )
                 painter.drawText(rect.x() + 4, rect.bottom() - 4, note.lyric)
 
 
@@ -306,15 +360,23 @@ class SimpleMelodySynth:
         elif platform.system() == "Windows":
             try:
                 import winsound
+
                 winsound.PlaySound(None, winsound.SND_PURGE)
             except Exception:
                 pass
 
-    def play(self, notes: list[PreviewNote], tempo: float, selection: tuple[int, int] | None = None):
+    def play(
+        self,
+        notes: list[PreviewNote],
+        tempo: float,
+        selection: tuple[int, int] | None = None,
+    ):
         if not notes:
             raise ValueError("No melody notes available.")
         self.stop()
-        start_tick, end_tick = (notes[0].position, notes[-1].end) if selection is None else selection
+        start_tick, end_tick = (
+            (notes[0].position, notes[-1].end) if selection is None else selection
+        )
         path = self._render_wav(notes, tempo, start_tick, end_tick)
         self._path = path
         if self._effect:
@@ -323,13 +385,19 @@ class SimpleMelodySynth:
             self._effect.play()
         elif platform.system() == "Windows":
             import winsound
+
             winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC)
         else:
             player = shutil.which("afplay") or shutil.which("aplay")
             if not player:
                 raise RuntimeError("No audio player is available.")
             import subprocess
-            subprocess.Popen([player, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            subprocess.Popen(
+                [player, str(path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
     def _render_wav(self, notes, tempo, start_tick, end_tick):
         ticks_per_second = 480.0 * float(tempo) / 60.0
@@ -339,19 +407,35 @@ class SimpleMelodySynth:
         for note in notes:
             if note.end <= start_tick or note.position >= end_tick:
                 continue
-            a = int((max(note.position, start_tick) - start_tick) / ticks_per_second * self.SAMPLE_RATE)
-            b = min(samples, int((min(note.end, end_tick) - start_tick) / ticks_per_second * self.SAMPLE_RATE))
+            a = int(
+                (max(note.position, start_tick) - start_tick)
+                / ticks_per_second
+                * self.SAMPLE_RATE
+            )
+            b = min(
+                samples,
+                int(
+                    (min(note.end, end_tick) - start_tick)
+                    / ticks_per_second
+                    * self.SAMPLE_RATE
+                ),
+            )
             if b <= a:
                 continue
             t = np.arange(b - a, dtype=np.float32) / self.SAMPLE_RATE
             frequency = 440.0 * (2.0 ** ((note.tone - 69) / 12.0))
-            wave_data = 0.78 * np.sin(2 * np.pi * frequency * t) + 0.16 * np.sin(4 * np.pi * frequency * t)
+            wave_data = 0.78 * np.sin(2 * np.pi * frequency * t) + 0.16 * np.sin(
+                4 * np.pi * frequency * t
+            )
             audio[a:b] += 0.22 * wave_data
         peak = float(np.max(np.abs(audio))) if audio.size else 0
         if peak > 0.95:
             audio *= 0.95 / peak
         pcm = np.int16(np.clip(audio, -1, 1) * 32767)
-        path = Path(tempfile.gettempdir()) / f"hiro_ust_preview_{os.getpid()}_{uuid.uuid4().hex}.wav"
+        path = (
+            Path(tempfile.gettempdir())
+            / f"hiro_ust_preview_{os.getpid()}_{uuid.uuid4().hex}.wav"
+        )
         with wave.open(str(path), "wb") as handle:
             handle.setnchannels(1)
             handle.setsampwidth(2)
@@ -414,6 +498,7 @@ class MelodyPreviewPanel(QWidget):
         self.selection_label.setText("No selection")
         if has_notes:
             from PySide6.QtCore import QTimer
+
             QTimer.singleShot(0, self.fit)
 
     def fit(self):
@@ -427,5 +512,7 @@ class MelodyPreviewPanel(QWidget):
     def _on_selection(self, start, end):
         count = len(self.piano_roll.selection_indices())
         self.play_selection_button.setEnabled(count > 0)
-        self.selection_label.setText(f"{count} notes · {start}–{end}" if count else "No selection")
+        self.selection_label.setText(
+            f"{count} notes · {start}–{end}" if count else "No selection"
+        )
         self.selectionChanged.emit(start, end)
