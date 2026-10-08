@@ -44,3 +44,4 @@ Export/
 build_opt/
 /wiki
 /Release Notes
+/node_modules
