@@ -1,4 +1,5 @@
 """Public package API for Hiro UST."""
+
 __version__ = "0.4.0"
 __author__ = "Ilya Minin (Eli)"
 
@@ -8,7 +9,14 @@ from .melody.phrase_engine import MelodyPolicy, PhraseMelodyEngine, PhrasePlan
 from .melody import MelodyBrain, SCALES
 
 __all__ = [
-    "__version__", "__author__", "HiroUSTProcessor",
-    "GeneratorConfig", "HiroConfig", "MelodyPolicy",
-    "PhraseMelodyEngine", "PhrasePlan", "MelodyBrain", "SCALES",
+    "__version__",
+    "__author__",
+    "HiroUSTProcessor",
+    "GeneratorConfig",
+    "HiroConfig",
+    "MelodyPolicy",
+    "PhraseMelodyEngine",
+    "PhrasePlan",
+    "MelodyBrain",
+    "SCALES",
 ]

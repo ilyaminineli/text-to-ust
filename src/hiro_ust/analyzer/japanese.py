@@ -18,7 +18,6 @@ def contains_kanji(text: str) -> bool:
 
 
 def normalize_reading(text: str) -> str:
-    """Normalize Kuroshiro hiragana output for UTAU-style mora parsing."""
     if not text:
         return ""
 
@@ -83,11 +82,11 @@ class JapaneseAnalysis:
 
 
 class JapaneseAnalysisError(RuntimeError):
-    """Raised when the Japanese reading backend cannot produce a safe reading."""
+    """Raised when Japanese text cannot be converted to a safe kana reading."""
 
 
 class JapaneseAnalyzer:
-    """Use vendored Kuroshiro/Kuromoji for the canonical Japanese reading."""
+    """Kuroshiro first; modern Python fallback only for unresolved dictionary gaps."""
 
     def __init__(self, node_executable: str = "node") -> None:
         self.node_executable = node_executable
@@ -98,6 +97,7 @@ class JapaneseAnalyzer:
         self.dict_path = bundle_root / "vendor" / "kuromoji" / "dict"
         self.backend = "kuroshiro-kuromoji"
         self._available: bool | None = None
+        self._pykakasi = None
 
     @property
     def available(self) -> bool:
@@ -108,6 +108,43 @@ class JapaneseAnalyzer:
                 and shutil.which(self.node_executable) is not None
             )
         return self._available
+
+    def _modern_fallback(self, text: str) -> str:
+        """Convert dictionary gaps with PyKakasi while preserving Kuroshiro as primary."""
+        if self._pykakasi is None:
+            try:
+                import pykakasi
+            except ImportError as exc:
+                raise JapaneseAnalysisError(
+                    "Kuroshiro/Kuromoji left Kanji unresolved and the modern "
+                    "Japanese fallback is not installed.\n"
+                    "Install it with:\n\n"
+                    "    pip install pykakasi\n\n"
+                    f"Source text: {text!r}"
+                ) from exc
+            self._pykakasi = pykakasi.kakasi()
+
+        try:
+            converted = self._pykakasi.convert(text)
+            reading = "".join(
+                str(item.get("hira", item.get("kana", "")))
+                for item in converted
+            )
+        except Exception as exc:
+            raise JapaneseAnalysisError(
+                f"PyKakasi failed to convert {text!r}: {exc}"
+            ) from exc
+
+        reading = normalize_reading(reading)
+
+        if contains_kanji(reading):
+            raise JapaneseAnalysisError(
+                "Both Kuroshiro/Kuromoji and PyKakasi left Kanji unresolved.\n"
+                f"Input: {text!r}\n"
+                f"PyKakasi reading: {reading!r}"
+            )
+
+        return reading
 
     def analyze(self, text: str) -> list[AnalyzerToken]:
         return list(self.analyze_detailed_many([text])[0].tokens)
@@ -130,9 +167,9 @@ class JapaneseAnalyzer:
                 missing.append(f"Kuromoji dictionary not found: {self.dict_path}")
             if shutil.which(self.node_executable) is None:
                 missing.append(f"Node executable not found: {self.node_executable}")
+
             detail = "; ".join(missing) or "unknown backend availability error"
 
-            # Never allow Kanji to silently flow into the phonemizer.
             if any(contains_kanji(text) for text in texts):
                 raise JapaneseAnalysisError(
                     "Kuroshiro/Kuromoji is unavailable, so Kanji cannot be "
@@ -170,17 +207,14 @@ class JapaneseAnalyzer:
         try:
             raw_batches = json.loads(process.stdout or "[]")
         except json.JSONDecodeError as exc:
-            stdout_preview = (process.stdout or "").strip()[:1000]
             raise JapaneseAnalysisError(
                 "Kuroshiro bridge returned invalid JSON.\n"
-                f"Output: {stdout_preview!r}"
+                f"Output: {(process.stdout or '').strip()[:1000]!r}"
             ) from exc
 
         if not isinstance(raw_batches, list) or len(raw_batches) != len(texts):
             raise JapaneseAnalysisError(
-                "Kuroshiro bridge returned an unexpected number of analyses: "
-                f"expected {len(texts)}, got "
-                f"{len(raw_batches) if isinstance(raw_batches, list) else 'non-list'}"
+                "Kuroshiro bridge returned an unexpected number of analyses."
             )
 
         result: list[JapaneseAnalysis] = []
@@ -188,7 +222,7 @@ class JapaneseAnalyzer:
         for text, payload in zip(texts, raw_batches):
             if not isinstance(payload, dict):
                 raise JapaneseAnalysisError(
-                    f"Kuroshiro returned an invalid payload for {text!r}: {payload!r}"
+                    f"Invalid Kuroshiro payload for {text!r}: {payload!r}"
                 )
 
             raw_tokens = payload.get("tokens", [])
@@ -233,7 +267,6 @@ class JapaneseAnalyzer:
                     )
                 )
 
-            # This MUST come from Kuroshiro normal-mode conversion.
             raw_reading = str(payload.get("reading", ""))
             if not raw_reading:
                 raise JapaneseAnalysisError(
@@ -241,14 +274,18 @@ class JapaneseAnalyzer:
                 )
 
             if contains_kanji(raw_reading):
-                raise JapaneseAnalysisError(
-                    "Kuroshiro returned Kanji instead of a kana reading.\n"
-                    f"Input:   {text!r}\n"
-                    f"Reading: {raw_reading!r}\n"
-                    "The Japanese converter must not receive this output."
-                )
+                # Kuroshiro's old IPADIC dictionary can miss modern lexical
+                # compounds. PyKakasi provides a second, offline Japanese
+                # dictionary in Python for those gaps.
+                reading = self._modern_fallback(text)
+            else:
+                reading = normalize_reading(raw_reading)
 
-            reading = normalize_reading(raw_reading)
+            if contains_kanji(reading):
+                raise JapaneseAnalysisError(
+                    "Japanese reading still contains Kanji before phonemization: "
+                    f"{reading!r} (source: {text!r})"
+                )
 
             result.append(
                 JapaneseAnalysis(

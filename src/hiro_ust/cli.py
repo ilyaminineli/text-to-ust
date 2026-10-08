@@ -1,4 +1,5 @@
 """Canonical application entry point for Hiro UST."""
+
 from __future__ import annotations
 
 import sys
