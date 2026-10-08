@@ -117,16 +117,6 @@ class HiroMainWindow(QMainWindow):
         self.quartertone = QCheckBox(); self.output_format = QComboBox(); self.output_format.addItems(["ustx","ust"])
 
     def _build_ui(self):
-        toolbar = self.addToolBar("Main"); toolbar.setMovable(False)
-        self._add_menu_button(toolbar, "Project", self._project_menu())
-        self._add_menu_button(toolbar, "Generation", self._generation_menu())
-        self._add_menu_button(toolbar, "Analyze", self._analysis_menu())
-        self._add_menu_button(toolbar, "View", self._view_menu())
-        self._add_menu_button(toolbar, "Debug", self._debug_menu())
-        toolbar.addSeparator()
-        self.generate_action = QAction("Generate", self); self.generate_action.setShortcut("Ctrl+Enter"); toolbar.addAction(self.generate_action)
-        self.export_action = QAction("Export UST", self); toolbar.addAction(self.export_action)
-
         central = QFrame(); central.setObjectName("panel")
         layout = QVBoxLayout(central); layout.setContentsMargins(6,6,6,6); layout.setSpacing(4)
         title_row = QHBoxLayout(); title = QLabel("Hiro UST"); title.setObjectName("title"); title_row.addWidget(title); title_row.addStretch()
@@ -147,6 +137,22 @@ class HiroMainWindow(QMainWindow):
         self.melody_preview.play_button.clicked.connect(self._play_full_melody)
         self.melody_preview.play_selection_button.clicked.connect(self._play_selected_melody)
         self.melody_preview.stop_button.clicked.connect(self._stop_melody)
+
+        # Build the toolbar only after the dock widgets exist. The View menu
+        # uses QDockWidget.toggleViewAction(), which requires those docks first.
+        toolbar = self.addToolBar("Main")
+        toolbar.setMovable(False)
+        self._add_menu_button(toolbar, "Project", self._project_menu())
+        self._add_menu_button(toolbar, "Generation", self._generation_menu())
+        self._add_menu_button(toolbar, "Analyze", self._analysis_menu())
+        self._add_menu_button(toolbar, "View", self._view_menu())
+        self._add_menu_button(toolbar, "Debug", self._debug_menu())
+        toolbar.addSeparator()
+        self.generate_action = QAction("Generate", self)
+        self.generate_action.setShortcut("Ctrl+Enter")
+        toolbar.addAction(self.generate_action)
+        self.export_action = QAction("Export UST", self)
+        toolbar.addAction(self.export_action)
 
     def _add_menu_button(self, toolbar, text, menu):
         button = QToolButton(); button.setText(text); button.setPopupMode(QToolButton.InstantPopup); button.setMenu(menu); toolbar.addWidget(button)
