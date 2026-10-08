@@ -1,4 +1,5 @@
 """Tests for the generated melody preview adapter."""
+
 from __future__ import annotations
 
 from hiro_ust.ui.melody_preview import notes_from_output

@@ -1,4 +1,5 @@
 """Regression tests for Japanese lyric structure using the canonical example."""
+
 from __future__ import annotations
 
 import shutil
@@ -24,7 +25,12 @@ def test_example_contains_expected_sections():
 def test_long_vowel_reading_is_expanded_for_singing():
     parser = LyricParser()
     doc = parser.parse("スターズ", TestPhonemizer())
-    words = [word for section in doc.sections for line in section.lines for word in line.words]
+    words = [
+        word
+        for section in doc.sections
+        for line in section.lines
+        for word in line.words
+    ]
     assert words[0].reading == "すたあず"
 
 
@@ -32,7 +38,12 @@ def test_kanji_structure_survives_without_backend():
     parser = LyricParser()
     doc = parser.parse("心　僕の世界じゃない", TestPhonemizer())
 
-    words = [word for section in doc.sections for line in section.lines for word in line.words]
+    words = [
+        word
+        for section in doc.sections
+        for line in section.lines
+        for word in line.words
+    ]
     assert words[0].text == "心"
     assert words[0].kanji_count == 1
     assert words[1].text == "僕の世界じゃない"

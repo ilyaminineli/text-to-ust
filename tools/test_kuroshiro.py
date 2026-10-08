@@ -1,11 +1,11 @@
 """End-to-end Kuroshiro/Kuromoji Node-runtime diagnostic."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 import shutil
 import subprocess
-
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "vendor" / "kuroshiro_bridge.js"
