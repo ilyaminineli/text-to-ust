@@ -33,6 +33,12 @@ These wrappers should stay thin. Do not add generation rules or duplicated state
 - Corrected the CLI entry point so the installed `hiro-ust` command supports the same generation options as `python run.py`.
 - Removed the unnecessary npm executable check from the Node diagnostic. The diagnostic invokes Node; it does not run npm itself.
 
+## Regression fixes discovered by CI
+
+- `LyricWord.kanji_count` counts actual Kanji characters; `LyricDocument.kanji_word_count` counts user lyric units containing Kanji. This keeps character counts and word/unit counts from being conflated.
+- The Kuromoji regression accepts valid surface forms beginning with `数え`, including dictionary form `数える`, rather than assuming one tokenizer's exact conjugation segmentation.
+- PyInstaller collection now collects all package submodules and package data instead of maintaining a hard-coded list of internal `hiro_ust.ui` modules. This lowers the chance of the frozen app silently missing new modules while preserving JSON/resource collection.
+
 ## Validation checklist
 
 Before merging cleanup work, run:
