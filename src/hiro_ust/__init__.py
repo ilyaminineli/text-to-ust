@@ -1,6 +1,6 @@
 """Public package API for Hiro UST."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __author__ = "Ilya Minin (Eli)"
 
 from .core import HiroUSTProcessor
