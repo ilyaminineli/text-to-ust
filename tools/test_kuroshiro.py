@@ -21,15 +21,10 @@ TESTS = [
 
 def main() -> int:
     node = shutil.which("node")
-    npm = shutil.which("npm")
-
     if node is None:
         raise RuntimeError("Node.js was not found on PATH.")
-    if npm is None:
-        raise RuntimeError("npm was not found on PATH.")
 
     print(f"Node: {node}")
-    print(f"npm:  {npm}")
     print(f"Bridge: {BRIDGE}")
     print(f"Dictionary: {DICT}")
     print()

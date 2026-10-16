@@ -1,47 +1,33 @@
+# Generated UTAU projects and application outputs
 *.ust
-/Debug
-/.idea
 *.ustx
-/build
-/dist
-*.pyc
-hiro_tester.log
 *.log
+hiro_tester.log
+/Debug
+/Release Notes
+/Export
 /archive
+/backup/
+/artifacts_backup.zip
+/build
 /build_opt
-/archive
-*.spec
-.DS_Store
+/dist
+/wiki
+/node_modules
 
-# Byte-compiled / optimized / DLL files
+# Python bytecode and packaging
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Distribution / packaging
-build/
-dist/
 *.egg-info/
 .eggs/
-
-# PyInstaller
 *.manifest
 *.spec
 
-# virtualenv
+# Virtual environments
 .venv/
 
-# Backup/archives
-backup/
-artifacts_backup.zip
-
-# Editor directories
-.vscode/
+# Editors and OS metadata
 .idea/
-
-# Other
-Export/
-build_opt/
-/wiki
-/Release Notes
-/node_modules
+.vscode/
+.DS_Store

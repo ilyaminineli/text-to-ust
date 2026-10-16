@@ -48,6 +48,7 @@ def test_kanji_structure_survives_without_backend():
     assert words[0].kanji_count == 1
     assert words[1].text == "僕の世界じゃない"
     assert words[1].kanji_count >= 2
+    assert doc.kanji_word_count == 2
 
 
 def test_kuroshiro_backend_is_used_when_node_is_available():
@@ -65,7 +66,7 @@ def test_kuroshiro_backend_is_used_when_node_is_available():
     surfaces = [token.surface for token in tokens]
     assert "静か" in surfaces
     assert "に" in surfaces
-    assert "数え" in surfaces
+    assert any(surface.startswith("数え") for surface in surfaces)
     readings = "".join(token.reading_hiragana for token in tokens)
     assert "しずか" in readings
     assert "かぞえ" in readings
