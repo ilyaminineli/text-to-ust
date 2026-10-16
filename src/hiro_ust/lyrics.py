@@ -60,7 +60,8 @@ class LyricWord:
 
     @property
     def kanji_count(self) -> int:
-        return sum(1 for morpheme in self.morphemes if morpheme.is_kanji)
+        """Count Kanji characters in the user's original lyric unit."""
+        return sum(1 for character in self.text if contains_kanji(character))
 
     @property
     def structure(self) -> str:
@@ -112,11 +113,13 @@ class LyricDocument:
 
     @property
     def kanji_word_count(self) -> int:
+        """Count lyric units containing at least one Kanji character."""
         return sum(
-            word.kanji_count
+            1
             for section in self.sections
             for line in section.lines
             for word in line.words
+            if word.kanji_count > 0
         )
 
 
