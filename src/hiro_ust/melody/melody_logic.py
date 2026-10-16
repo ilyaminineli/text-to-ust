@@ -16,6 +16,7 @@ import numpy as np
 from ..constants import VOWEL_CHARS, CONSONANT_CHARS
 from .intone_utils import get_intone_settings
 from .scales import SCALES
+from .scale_utils import scale_intervals
 
 # Voice roots used by the GUI. The values describe a comfortable relative
 # melodic span around each voice's root, not a strict vocal range database.
@@ -408,7 +409,9 @@ class MelodyBrain:
         pitch_range=70,
         accent="None",
     ):
-        scale = SCALES[scale_name]
+        # Convert the selected scale to semitone offsets from the active root.
+        # This keeps generic modes transposable and named-key scales in their key.
+        scale = list(scale_intervals(scale_name, int(root_midi)))
         settings = self._intone_cache.setdefault(
             intone_level, get_intone_settings(intone_level)
         )

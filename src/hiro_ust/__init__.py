@@ -6,7 +6,7 @@ __author__ = "Ilya Minin (Eli)"
 from .core import HiroUSTProcessor
 from .config import GeneratorConfig, HiroConfig
 from .melody.phrase_engine import MelodyPolicy, PhraseMelodyEngine, PhrasePlan
-from .melody import MelodyBrain, SCALES
+from .melody import MelodyBrain, MelodyEngine, SCALES
 
 __all__ = [
     "__version__",
@@ -18,5 +18,6 @@ __all__ = [
     "PhraseMelodyEngine",
     "PhrasePlan",
     "MelodyBrain",
+    "MelodyEngine",
     "SCALES",
 ]
