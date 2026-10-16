@@ -372,9 +372,18 @@ class USTXWriter:
         del pre_utter, voice_overlap, envelope, pbw, flags, bpm
         length = max(60, min(1920, int(length)))
         tone = int(max(21, min(108, round(float(note_num)))))
+        fractional_semitones = float(note_num) - round(float(note_num))
         rng = _stable_rng(self.position, str(lyric), tone)
 
         pitch_data = self._pitch_curve(length, str(lyric), pbs, rng)
+        # USTX stores integer MIDI tones plus pitch-curve offsets in cents.
+        # Preserve quarter-tone intent rather than silently rounding it away.
+        if abs(fractional_semitones) > 1e-9:
+            cents = int(round(fractional_semitones * 100))
+            pitch_data = [
+                {**point, "y": int(point["y"]) + cents}
+                for point in pitch_data
+            ]
         vibrato = self._vibrato(length, str(lyric), rng)
 
         # Keep the older expressive feel: gentle modulation and velocity variation,

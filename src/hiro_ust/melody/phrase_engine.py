@@ -91,19 +91,29 @@ class PhraseMelodyEngine:
         return tuple(steps)
 
     def plan_phrase(
-        self, length: int, register: int, contour_bias: float = 0.0
+        self,
+        length: int,
+        register: int,
+        contour_bias: float = 0.0,
+        *,
+        use_motifs: bool = True,
     ) -> PhrasePlan:
         length = max(2, int(length))
         contour = self._choose_contour(contour_bias)
-        if self.motifs and self.rng.random() < self.policy.motif_probability:
+        if (
+            use_motifs
+            and self.motifs
+            and self.rng.random() < self.policy.motif_probability
+        ):
             source = self.rng.choice(self.motifs)
-            if len(source) == length - 1:
-                intervals = source
-            else:
-                intervals = tuple(source[i % len(source)] for i in range(length - 1))
+            intervals = (
+                source
+                if len(source) == length - 1
+                else tuple(source[index % len(source)] for index in range(length - 1))
+            )
         else:
             intervals = self._motif(length)
-        if intervals not in self.motifs:
+        if use_motifs and intervals not in self.motifs:
             self.motifs.append(intervals)
             self.motifs = self.motifs[-12:]
         return PhrasePlan(contour, length, int(register), intervals)
@@ -116,12 +126,17 @@ class PhraseMelodyEngine:
         scale: Sequence[int],
         low: int,
         high: int,
+        flat_mode: bool = False,
     ) -> list[int]:
         pool = self._scale_notes(root, scale, low, high)
         if not pool:
-            return [root] * plan.length
+            return [max(low, min(high, int(root)))] * plan.length
 
-        current = min(pool, key=lambda n: abs(n - plan.register))
+        current = min(pool, key=lambda note: (abs(note - plan.register), note))
+        if flat_mode:
+            result = [current] * plan.length
+            self.history.extend(result)
+            return result
         result = []
         for i in range(plan.length):
             if i == 0:
