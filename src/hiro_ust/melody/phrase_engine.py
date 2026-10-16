@@ -17,6 +17,8 @@ import math
 import random
 from typing import Sequence
 
+from .scale_utils import scale_note_pool, scale_tonic_pitch_class
+
 
 @dataclass(frozen=True)
 class MelodyPolicy:
@@ -47,7 +49,15 @@ class PhraseMelodyEngine:
         self.motifs: list[tuple[int, ...]] = []
 
     @staticmethod
-    def _scale_notes(root: int, scale: Sequence[int], low: int, high: int) -> list[int]:
+    def _scale_notes(
+        root: int,
+        scale: Sequence[int],
+        low: int,
+        high: int,
+        scale_name: str | None = None,
+    ) -> list[int]:
+        if scale_name is not None:
+            return scale_note_pool(scale_name, root, low, high)
         pcs = {int(x) % 12 for x in scale}
         return [n for n in range(low, high + 1) if n % 12 in pcs]
 
@@ -127,8 +137,9 @@ class PhraseMelodyEngine:
         low: int,
         high: int,
         flat_mode: bool = False,
+        scale_name: str | None = None,
     ) -> list[int]:
-        pool = self._scale_notes(root, scale, low, high)
+        pool = self._scale_notes(root, scale, low, high, scale_name)
         if not pool:
             return [max(low, min(high, int(root)))] * plan.length
 
@@ -154,7 +165,11 @@ class PhraseMelodyEngine:
             result.append(current)
 
         # Cadence: favor tonic-ish ending, preferably by step.
-        tonic_pc = int(scale[0]) % 12
+        tonic_pc = (
+            scale_tonic_pitch_class(scale_name, root)
+            if scale_name is not None
+            else int(scale[0]) % 12
+        )
         cadence = [n for n in pool if n % 12 == tonic_pc]
         if cadence:
             result[-1] = min(cadence, key=lambda n: abs(n - result[-2]))

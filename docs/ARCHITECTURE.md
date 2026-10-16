@@ -63,6 +63,12 @@ The PySide6 graphical interface. The UI owns controls, file dialogs, settings, p
 
 The main window is deliberately editor-like: lyrics on the left, generated-note analysis in the center, and compact musical controls on the right. Generate/export actions stay in the toolbar.
 
+### Canonical melody facade
+
+`MelodyEngine` is the processor-facing melody API. It owns mode selection, seeded expression randomness, scale/range constraints, and fractional-pitch handling. The phrase-first planner and scored melody algorithm remain separately testable behind that facade; new behavior should be added through the shared API instead of creating another end-to-end generation pipeline.
+
+Generic scale types such as Major Pentatonic are transposed from the selected MIDI root. Explicit key scales such as D Major retain their named pitch classes, while the MIDI root acts as the register anchor. Scale intervals preserve their tonic-first ordering so cadence logic does not accidentally favor the lowest pitch class in the set.
+
 ## Determinism
 
 Hiro uses seeded random generators for procedural decisions. Keep random streams isolated where possible:
